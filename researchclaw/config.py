@@ -255,6 +255,7 @@ class SecurityConfig:
 class SandboxConfig:
     python_path: str = DEFAULT_PYTHON_PATH
     gpu_required: bool = False
+    force_numpy_only: bool = False
     allowed_imports: tuple[str, ...] = (
         "math",
         "random",
@@ -488,6 +489,7 @@ class OpenCodeConfig:
     auto: bool = True  # Auto-trigger without user confirmation
     complexity_threshold: float = 0.2  # 0.0-1.0
     model: str = ""  # Empty = use llm.primary_model
+    fallback_models: tuple[str, ...] = ()
     timeout_sec: int = 600  # Max seconds for opencode run
     max_retries: int = 1
     workspace_cleanup: bool = True
@@ -1352,6 +1354,7 @@ def _parse_experiment_config(data: dict[str, Any]) -> ExperimentConfig:
         sandbox=SandboxConfig(
             python_path=sandbox_data.get("python_path", DEFAULT_PYTHON_PATH),
             gpu_required=bool(sandbox_data.get("gpu_required", False)),
+            force_numpy_only=bool(sandbox_data.get("force_numpy_only", False)),
             allowed_imports=tuple(
                 sandbox_data.get("allowed_imports", SandboxConfig.allowed_imports)
             ),
@@ -1512,6 +1515,9 @@ def _parse_opencode_config(data: dict[str, Any]) -> OpenCodeConfig:
         auto=bool(data.get("auto", True)),
         complexity_threshold=_safe_float(data.get("complexity_threshold"), 0.2),
         model=str(data.get("model", "")),
+        fallback_models=tuple(
+            str(m) for m in (data.get("fallback_models") or []) if str(m).strip()
+        ),
         timeout_sec=_safe_int(data.get("timeout_sec"), 600),
         max_retries=_safe_int(data.get("max_retries"), 1),
         workspace_cleanup=bool(data.get("workspace_cleanup", True)),

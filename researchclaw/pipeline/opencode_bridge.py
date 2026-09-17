@@ -272,8 +272,10 @@ class OpenCodeBridge:
         timeout_sec: int = 600,
         max_retries: int = 1,
         workspace_cleanup: bool = True,
+        fallback_models: tuple[str, ...] = (),
     ) -> None:
         self._model = model
+        self._fallback_models = tuple(fallback_models)
         self._llm_base_url = llm_base_url
         self._api_key_env = api_key_env
         self._llm_provider = llm_provider
@@ -472,7 +474,9 @@ class OpenCodeBridge:
         # Use -m flag to specify model (more reliable than opencode.json)
         resolved_model = self._resolve_opencode_model()
         opencode_cmd = shutil.which("opencode") or "opencode"
-        cmd = self._build_opencode_command(opencode_cmd, resolved_model, prompt)
+        cmd = self._build_opencode_command(
+            opencode_cmd, resolved_model, prompt, run_dir=str(workspace)
+        )
 
         t0 = time.monotonic()
         try:
@@ -503,9 +507,14 @@ class OpenCodeBridge:
 
     @staticmethod
     def _build_opencode_command(
-        opencode_cmd: str, resolved_model: str, prompt: str
+        opencode_cmd: str, resolved_model: str, prompt: str, run_dir: str = ""
     ) -> list[str]:
-        """Build the argv for ``opencode run``, wrapping with a pseudo-TTY on Linux.
+        """Build the argv for ``opencode run``.
+
+        ``run_dir`` is passed via ``--dir`` so OpenCode scopes its project/session
+        to the Beast Mode workspace. Without it, OpenCode resolves to the parent
+        repo root and writes generated files there, so ``_collect_files(workspace)``
+        finds nothing.
 
         The ``opencode`` CLI requires a TTY: when invoked via ``subprocess.run``
         with piped stdout/stderr it can return exit 0 with empty output and no
@@ -525,7 +534,10 @@ class OpenCodeBridge:
         platforms, and when ``script`` is unavailable, we fall back to invoking
         ``opencode`` directly — i.e. the prior behaviour, no regression.
         """
-        direct = [opencode_cmd, "run", "-m", resolved_model, "--format", "json", prompt]
+        direct = [opencode_cmd, "run", "-m", resolved_model, "--format", "json"]
+        if run_dir:
+            direct += ["--dir", run_dir]
+        direct.append(prompt)
 
         script_path = shutil.which("script")
         if sys.platform.startswith("linux") and script_path:
@@ -694,7 +706,14 @@ class OpenCodeBridge:
         workspace: Path | None = None
         last_error = ""
 
-        for attempt in range(1 + self._max_retries):
+        candidates = [m for m in (self._model, *self._fallback_models) if m] or [self._model]
+        plan = [
+            (candidate, attempt)
+            for candidate in candidates
+            for attempt in range(1 + self._max_retries)
+        ]
+        for model_candidate, attempt in plan:
+            self._model = model_candidate
             # Prepare workspace
             try:
                 workspace = self._prepare_workspace(
@@ -720,7 +739,8 @@ class OpenCodeBridge:
             )
 
             logger.info(
-                "Beast mode: invoking OpenCode (attempt %d/%d, timeout=%ds)",
+                "Beast mode: invoking OpenCode (model=%s, attempt %d/%d, timeout=%ds)",
+                self._model,
                 attempt + 1,
                 1 + self._max_retries,
                 self._timeout_sec,
@@ -778,7 +798,7 @@ class OpenCodeBridge:
         return OpenCodeResult(
             success=False,
             opencode_log=last_error,
-            error=f"OpenCode failed after {1 + self._max_retries} attempt(s)",
+            error=f"OpenCode failed after {len(plan)} attempt(s) across {len(candidates)} model(s)",
         )
 
 

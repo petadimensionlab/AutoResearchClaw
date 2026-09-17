@@ -118,10 +118,50 @@ artifacts/<run-id>/
 
 ### Troubleshooting
 
+Baseline checks:
 - **Config validation error**: Run `researchclaw validate --config config.yaml`
 - **LLM connection failure**: Check `llm.base_url` and API key
 - **Sandbox execution failure**: Verify `experiment.sandbox.python_path` exists and has numpy installed
 - **Gate rejection**: Use `--auto-approve` or manually approve at stages 5, 9, 20
+
+Field notes — failures seen in real long runs (details in README "Troubleshooting (field notes)"):
+
+**ACP backend (`llm.provider: acp`)**
+- `Stage NN … ACP prompt failed (exit 1)` where stderr only shows `[acpx] session … agent connected`: the real error is in acpx's own log. Always read `~/.acpx/sessions/<id>.stream.ndjson` and look for `"error":{…}` before anything else.
+- `Failed to authenticate: OAuth session expired` → re-login the ACP agent CLI (e.g. `claude` → `/login`).
+- `Reached maximum number of turns (N)` → `llm.acp.max_turns` too low; the agent needed a tool call. Raise it (heavy stages need ~120).
+- `ACP prompt timed out after 1800s` → raise `llm.acp.timeout_sec` (slow local models need 14400+).
+- `ConnectionRefused http://<host>:8000/v1/chat/completions` retried every ~30s → the model endpoint is down, or bound to `127.0.0.1` on a remote host. Bind `0.0.0.0` and verify `curl http://<host>:8000/v1/models`; the run resumes once it is up.
+- `You've hit your session limit` (`errorKind: rate_limit`) → wait for the reset or switch provider; resume with `--from-stage`.
+- **No log output does not mean stuck**: opencode logs only call start/end. Check liveness by sampling the acpx stream file size twice (`wc -c ~/.acpx/sessions/<id>.stream.ndjson`); growing = alive.
+- Multi-hour sessions can stall for ~20 min in **compaction** (context bloat). Prefer re-running a heavy stage over letting one session grow unbounded.
+
+**Literature (Stage 5 pause)**
+- `LITERATURE_SCREEN -- PAUSED: Model returned empty shortlist after strict screening` → the strict domain-aware screen rejects everything when `research.domains` does not match the topic's real field (e.g. a social-science topic declared as `machine-learning`). Fix `research.domains`, then resume `--from-stage LITERATURE_SCREEN` (Stage 5 re-reads Stage 4's `candidates.jsonl`; no re-search).
+
+**Malformed model output (silent fallbacks)**
+- `stage-03/queries.json: "model_queries_extracted": false` with topic n-gram queries → the model returned invalid YAML (`key:value` with no space, bad list indent) and the parser fell back silently. Fix with a `search_strategy` prompt override.
+- Generated code fails `ast.parse` with `SyntaxError: invalid syntax (line 1)` on every repair → the model emitted a bare `:main.py` line instead of the required ` ```filename:main.py ` fence. Fix with a `code_generation` prompt override.
+
+**Prompt overrides gotcha**
+- `prompts.extra_prompts` with inline multi-line text fails with `OSError: File name too long` in `_load_extras`. Always point to a **file**:
+  ```yaml
+  prompts:
+    extra_prompts:
+      search_strategy: ./prompts/search_strategy_rules.md
+      code_generation: ./prompts/code_generation_rules.md
+  ```
+
+**Beast Mode (OpenCode)**
+- `OpenCode succeeded but no main.py found (files: [])` → `opencode run` resolved its project to the repo root instead of the temp workspace. **Fixed**: the bridge passes `--dir <workspace>`. If it recurs, verify `--dir` is present and raise `experiment.opencode.timeout_sec`.
+- `TIMEOUT after 1800.0s` → raise `experiment.opencode.timeout_sec`.
+- OpenRouter free models `404 ZDR violation (account settings)` → adjust `https://openrouter.ai/settings/privacy`, or use OpenCode Zen free models (`opencode/<id>-free`), which need no auth.
+
+**Export**
+- `pdflatex not installed` → install a TeX distribution and the missing `.sty` packages (`tlmgr install …`), or compile `paper.tex` on Overleaf. The pipeline degrades gracefully.
+
+**Not wired in v0.5.0**
+- `experiment.cli_agent.provider` (`claude_code` / `codex`) is implemented (`create_code_agent`) but never called; Stage 10 uses the main LLM unless Beast Mode is enabled.
 
 ## Tools Required
 

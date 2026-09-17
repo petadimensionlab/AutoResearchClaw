@@ -270,7 +270,11 @@ def _execute_code_generation(
         else:
             pkg_prefix = "sandbox mode"
             pkg_extras = ""
-        if hw_profile and hw_profile.get("has_gpu"):
+        if (
+            hw_profile
+            and hw_profile.get("has_gpu")
+            and not getattr(config.experiment.sandbox, "force_numpy_only", False)
+        ):
             gpu_type = hw_profile.get("gpu_type", "cuda")
             gpu_name = hw_profile.get("gpu_name", "GPU")
             tier = hw_profile.get("tier", "limited")
@@ -557,6 +561,7 @@ def _execute_code_generation(
                     timeout_sec=_oc_cfg.timeout_sec,
                     max_retries=_oc_cfg.max_retries,
                     workspace_cleanup=_oc_cfg.workspace_cleanup,
+                    fallback_models=getattr(_oc_cfg, "fallback_models", ()),
                 )
 
                 logger.info(

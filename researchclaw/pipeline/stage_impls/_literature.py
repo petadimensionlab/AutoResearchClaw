@@ -140,6 +140,17 @@ def _execute_search_strategy(
             src = payload.get("sources", [])
             if isinstance(src, list):
                 sources = [item for item in src if isinstance(item, dict)]
+        if plan is None:
+            # Some models return the YAML plan directly instead of a JSON wrapper,
+            # or the JSON wrapper arrives truncated. Try the raw response as YAML.
+            try:
+                direct = yaml.safe_load(_extract_yaml_block(resp.content))
+            except yaml.YAMLError:
+                direct = None
+            if isinstance(direct, dict) and (
+                direct.get("search_strategies") or direct.get("strategies")
+            ):
+                plan = direct
     model_plan_parsed = plan is not None
     if plan is None:
         # Build smart fallback queries by extracting key terms from topic
@@ -220,6 +231,7 @@ def _execute_search_strategy(
     if isinstance(plan, dict):
         strategies = (
             plan.get("search_strategies")
+            or plan.get("strategies")
             or plan.get("search_phases")
             or plan.get("phases")
             or []
@@ -781,7 +793,7 @@ def _execute_literature_screen(
         else:
             parse_failed = True
     # T2.2: Ensure minimum shortlist size of 15 for adequate related work
-    _MIN_SHORTLIST = 15
+    _MIN_SHORTLIST = 30
     if model_rejected_all:
         # Strict screen returned an empty shortlist — do not backfill with
         # rejected papers. Pause the pipeline so the user can decide whether

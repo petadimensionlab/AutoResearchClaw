@@ -825,6 +825,71 @@ Stage 13 then promotes the merged state to `experiment_final/` as before.
 
 ---
 
+## 🧯 Troubleshooting (field notes)
+
+Failures observed in real long autonomous runs and the fixes that worked. The same list is distilled in `.claude/skills/researchclaw/SKILL.md`.
+
+### ACP backend (`llm.provider: acp`)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Stage NN — FAILED … ACP prompt failed (exit 1)` with stderr only `[acpx] session … agent connected` | The ACP agent failed *after* connecting; the pipeline only surfaces acpx's last stderr line | Read `~/.acpx/sessions/<id>.stream.ndjson` and search `"error":{…}` — that holds the real cause (auth / rate limit / turn limit / HTTP 4xx) |
+| `Failed to authenticate: OAuth session expired and could not be refreshed` | ACP agent CLI credentials expired | Re-login the agent CLI (e.g. `claude` → `/login`), then verify with a tiny prompt |
+| `Reached maximum number of turns (N)` | `llm.acp.max_turns` too small — the agent used a tool call | Raise `llm.acp.max_turns` (text-only prompts need 1; tool-using stages need ~120) |
+| `ACP prompt timed out after 1800s` | Default per-call timeout too short for slow/local models | Raise `llm.acp.timeout_sec` (e.g. `14400` = 4 h) |
+| `ConnectionRefused http://<host>:8000/v1/chat/completions`, retried every ~30 s | Model endpoint down, or bound to `127.0.0.1` on a remote host | Bind it to `0.0.0.0`, verify `curl http://<host>:8000/v1/models`; opencode retries until the server is up, and the run continues |
+| `You've hit your session limit` (`errorKind: rate_limit`) | Provider plan quota exhausted | Wait for the reset, or switch provider; resume with `--from-stage` |
+| Apparent "hang" with a stale pipeline log | Pipeline logs are block-buffered and opencode logs only call start/end — silence ≠ stuck | Judge liveness by the acpx stream file growing: `wc -c ~/.acpx/sessions/<id>.stream.ndjson` twice, ~30 s apart |
+| Stall after many hours | Conversation **compaction** (context bloat) can block a model call for ~20 min | Prefer re-running the heavy stage via `--from-stage` instead of letting one session grow unbounded |
+
+### Literature stages
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Stage 05 LITERATURE_SCREEN -- PAUSED: Model returned empty shortlist after strict screening` | The strict domain-aware screen rejects every candidate when `research.domains` doesn't match the topic's real field (e.g. a social-science topic declared as `machine-learning`) | Correct `research.domains`, then resume `--from-stage LITERATURE_SCREEN` — Stage 5 re-reads Stage 4's `candidates.jsonl`, so no re-search is needed |
+| Queries are topic n-grams (`"the outcome of infectious"`) and results are off-topic | The model returned invalid YAML (`key:value` with no space / broken list indent); `yaml.safe_load` failed and the parser **silently** fell back to topic-derived queries (`stage-03/queries.json: "model_queries_extracted": false`) | Add a strict-format `search_strategy` prompt override (below) |
+
+### Code generation
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Code validation FAILED … SyntaxError: invalid syntax (line 1)` on every repair attempt | The model emitted a bare `:main.py` line instead of the required ` ```filename:main.py ` fence, so the filename marker became source line 1 | Add the `code_generation` format override (below) |
+| Stage 10 runs for many hours | Each LLM call is slow and the multi-phase CodeAgent (blueprint → generate → exec-fix → validate → review) multiplies calls | Raise `llm.acp.timeout_sec`; optionally trim `experiment.code_agent.exec_fix_max_iterations` / `hard_validation_max_repairs` |
+
+### Prompt overrides (`prompts.extra_prompts`)
+
+Reference a **file** — inline multi-line text fails with `OSError: File name too long` in `_load_extras`:
+
+```yaml
+prompts:
+  extra_prompts:
+    search_strategy: ./prompts/search_strategy_rules.md
+    code_generation: ./prompts/code_generation_rules.md
+```
+
+- `prompts/search_strategy_rules.md` — require valid PyYAML (`key: value` with a space, 2-space indent, no code fences).
+- `prompts/code_generation_rules.md` — require the exact ` ```filename:xxx.py ` fence and complete, `ast.parse`-able Python.
+
+### Beast Mode (OpenCode)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `OpenCode succeeded but no main.py found (files: [])` | `opencode run` resolved its project to the repo root instead of the temp workspace, so generated files landed outside it and collection found nothing | Fixed: the bridge now invokes `opencode run … --dir <workspace>`. If it recurs, confirm `--dir` is on the command (see `opencode_bridge._build_opencode_command`) |
+| `TIMEOUT after 1800.0s` | `experiment.opencode.timeout_sec` too short for an agentic model | Raise `experiment.opencode.timeout_sec` |
+| OpenRouter free models `404 … ZDR violation (account settings)` | Account privacy setting excludes free endpoints | Adjust `https://openrouter.ai/settings/privacy`, or use OpenCode Zen free models (`opencode/<id>-free`) — these need **no auth** |
+
+### Export
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `pdflatex not installed` in the `paper.tex` header, `pipeline_summary.json: degraded: true` | No TeX distribution (compilation is skipped gracefully) | Install a TeX distribution and the missing `.sty` packages (`tlmgr install fancyhdr microtype algorithms adjustbox units …`), or compile `paper.tex` on Overleaf |
+
+### Not wired in v0.5.0
+
+- `experiment.cli_agent.provider` (`claude_code` / `codex`) — `create_code_agent()` exists in `researchclaw/experiment/code_agent.py` but is never called by the pipeline. Stage 10 always uses the main LLM unless Beast Mode is enabled.
+
+---
+
 ## 🙏 Acknowledgments
 
 Inspired by:

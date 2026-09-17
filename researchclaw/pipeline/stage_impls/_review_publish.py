@@ -265,6 +265,27 @@ def _execute_peer_review(
 # Stage 19: Paper Revision
 # ---------------------------------------------------------------------------
 
+def _collapse_degenerate_repetition(text: str) -> tuple[str, int]:
+    lines = text.splitlines()
+    out: list[str] = []
+    removed = 0
+    prev_norm = ""
+    run = 0
+    for line in lines:
+        norm = line.strip()
+        if norm:
+            if norm == prev_norm:
+                run += 1
+                if run >= 2:
+                    removed += 1
+                    continue
+            else:
+                run = 0
+        out.append(line)
+        prev_norm = norm
+    return "\n".join(out), removed
+
+
 def _execute_paper_revision(
     stage_dir: Path,
     run_dir: Path,
@@ -360,6 +381,15 @@ def _execute_paper_revision(
             retries=2,
         )
         revised = resp.content
+        revised, _dup_removed = _collapse_degenerate_repetition(revised)
+        _revised_lines = max(1, len(revised.splitlines()))
+        if _dup_removed > 20 and _dup_removed > _revised_lines * 0.25:
+            logger.warning(
+                "Stage 19: degenerate repetition detected (%d duplicate lines) — "
+                "falling back to the unrevised draft",
+                _dup_removed,
+            )
+            revised = draft
         revised_word_count = len(revised.split())
         # Length guard: if revision is shorter than 80% of draft, retry once
         if draft_word_count > 500 and revised_word_count < int(draft_word_count * 0.8):
