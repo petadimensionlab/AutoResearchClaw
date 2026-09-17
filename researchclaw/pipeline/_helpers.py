@@ -413,10 +413,17 @@ def _read_prior_artifact(run_dir: Path, filename: str) -> str | None:
         candidate = stage_subdir / filename
         if candidate.is_file():
             try:
-                return candidate.read_text(encoding="utf-8")
+                content = candidate.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError) as exc:
                 logger.warning("Cannot read %s: %s — skipping", candidate, exc)
                 continue
+            if not content.strip():
+                logger.warning(
+                    "Skipping empty prior artifact %s — looking for an earlier copy",
+                    candidate,
+                )
+                continue
+            return content
         if filename.endswith("/") and (stage_subdir / filename.rstrip("/")).is_dir():
             return str(stage_subdir / filename.rstrip("/"))
     return None
