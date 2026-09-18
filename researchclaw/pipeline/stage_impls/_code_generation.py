@@ -245,7 +245,7 @@ def _check_condition_differentiation(
 
     exe = python_path
     if exe and Path(exe).exists():
-        exe = str(Path(exe).resolve())
+        exe = str(Path(exe).absolute())
     else:
         exe = _sys_d.executable
 
