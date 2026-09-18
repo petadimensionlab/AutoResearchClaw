@@ -1861,6 +1861,13 @@ def _execute_paper_draft(
         _pm_plan = _plan_doc.get("primary_metric") if isinstance(_plan_doc, dict) else None
         if isinstance(_pm_plan, dict) and _pm_plan.get("direction") and _pm_plan.get("formula"):
             _metric_defined_in_plan = True
+        else:
+            _plan_metrics = _plan_doc.get("metrics") if isinstance(_plan_doc, dict) else None
+            if isinstance(_plan_metrics, list):
+                _metric_defined_in_plan = any(
+                    isinstance(_m, dict) and _m.get("direction") and _m.get("formula")
+                    for _m in _plan_metrics
+                )
     except (yaml.YAMLError, OSError, TypeError):
         _metric_defined_in_plan = False
     if not _metric_defined_in_plan and any(phrase in _analysis_lower for phrase in [
