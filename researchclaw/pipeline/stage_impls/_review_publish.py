@@ -416,14 +416,14 @@ def _execute_paper_revision(
             if revised2_word_count >= int(draft_word_count * 0.8):
                 revised = revised2
             elif revised2_word_count > revised_word_count:
-                # Retry improved but still not enough — use the longer version
-                revised = revised2
                 logger.warning(
-                    "Retry improved (%d → %d words) but still shorter than draft (%d).",
+                    "Retry improved (%d → %d words) but is still below 80%% of the draft "
+                    "(%d) — keeping the unrevised draft to preserve citations and content.",
                     revised_word_count,
                     revised2_word_count,
                     draft_word_count,
                 )
+                revised = draft
             else:
                 # Both attempts produced short output — preserve full original draft
                 logger.warning(
