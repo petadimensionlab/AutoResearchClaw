@@ -242,8 +242,14 @@ Read the files in the current workspace:
 Your task:
 1. Design the file structure (main.py is the required entry point).
 2. Implement ALL files with complete, runnable code. No placeholders or TODOs.
-3. main.py must be the entry point and print the primary metric as:
-   {metric}: <value>
+3. main.py MUST define `def main():` and END with:
+
+   if __name__ == "__main__":
+       main()
+
+   Running `python main.py` with no arguments MUST execute the complete experiment
+   (all conditions x seeds) and print the primary metric as `{metric}: <value>`.
+   Do NOT put the entry point only in a helper module — the harness runs `python main.py`.
 4. Include numerical stability guards (gradient clipping, NaN detection, etc.).
 5. Use multi-seed evaluation (seeds 0, 1, 2) and report mean ± std.
 6. Each ablation/condition MUST be genuinely different — not copy-paste with a renamed variable.

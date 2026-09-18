@@ -35,6 +35,14 @@ TOPIC ALIGNMENT & RUNTIME (equally critical):
 - Do NOT load external datasets or use the network. All data must be generated in-code.
 - `main.py` must run to completion on CPU in a few minutes and print metric lines as `name: value`.
 
+ENTRY POINT (mandatory — the harness runs `python main.py` with no arguments):
+- `main.py` MUST define `def main():` and end with:
+    if __name__ == "__main__":
+        main()
+- Running `python main.py` MUST execute every condition and every seed and print the metric lines.
+- Do NOT put the entry point only in a sibling module; a library-only `main.py` exits with no output and
+  makes the whole experiment count as failed.
+
 ABLATION / CONDITION INTEGRITY (mandatory — identical conditions are rejected downstream):
 - Every condition/ablation MUST actually consume its differentiating parameter inside the simulation loop.
   Never define a parameter and then ignore it.
