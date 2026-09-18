@@ -26,9 +26,9 @@ infrastructure failures (auth, endpoints, timeouts, client versions) are documen
 | B8 | 14 of 37 cited keys did not exist in the bibliography | Model fabricated plausible author-year keys | Stricter prompt ("only keys verbatim in the supplied list"); 4 keys still fabricated in the last run | ⚠️ Partial |
 | B9 | Citations shrank through revision: 71 (draft) → 37 (revised) → 12 (final) | Revision condensed the paper (6,026 words vs 14,436-word draft) and dropped content | Length retry exists but still shortens; not yet resolved | ⚠️ Open |
 | B10 | Only 233 literature candidates with off-topic hits | n-gram queries from B4 | Fixed queries → **2,086** candidates, shortlist 15 → 30 | ✅ Fixed |
-| B11 | Ablation trivial: `without_activity_gating` = 0.5028 vs baseline 0.5026 (0.0002 pp); metric range 0.0033 | Generated code hardcodes one RNG seed and/or does not consume the differentiating parameter; metric saturates near 1.0 | Prompts now require per-condition seeds, non-saturated metrics, and a `max-min > 0.05` self-check; **currently being verified** (Stage 10 re-running) | 🔄 In progress |
+| B11 | Ablation trivial: `without_activity_gating` = 0.5028 vs baseline 0.5026 (0.0002 pp); metric range 0.0033 | Generated code did not consume the differentiating parameter | Prompts require per-condition seeds + non-saturated metrics; **plus a Stage-10 gate** that runs the experiment and fails when all conditions agree within 0.05 (`_check_condition_differentiation`) | 🔄 Gate added, re-run in progress |
 | B12 | Repeated `metric saturation detected` → 6 refine iterations until the wall-clock cap | Consequence of B11 | Follows B11 | 🔄 In progress |
-| B13 | `Stage 17: Primary metric is undefined (direction/units/formula unknown)` even though the plan defines it | Detector only looked for the literal phrase in the analysis text, and only for a top-level `primary_metric` key | `_paper_writing.py` now suppresses the warning when `exp_plan.yaml` defines a metric with `direction` + `formula` (top-level **or** inside `metrics[]`) | ✅ Fixed |
+| B13 | `Stage 17: Primary metric is undefined (direction/units/formula unknown)` even though the plan defines it | Detector only looked for the literal phrase in the analysis text, and only for a top-level `primary_metric` key | `_paper_writing.py` suppresses the warning when `exp_plan.yaml` defines a metric with `direction` + `formula` (top-level **or** inside `metrics[]`) | ✅ **Verified fixed** (warning gone in run `rc-20260918-042856`) |
 | B14 | Final result was a null result (all methods statistically indistinguishable) | Consequence of B11/B12 | P10 guard now instructs the writer to frame it as a null result rather than claim superiority | ✅ Handled |
 | B15 | Quality gate **1/10 "REJECT - FABRICATED RESULTS + CORRUPTED TEXT"**; later 2.8 → 3.0 | Corrupted text (B16) + invalid experiment (B11) + unsupported numbers (fabrication_rate 34.2 %) | Text corruption fixed (see A-class); quality remains below target | ⚠️ Partial |
 | B16 | Revision degenerated into repetition — `"the key finding"` ×1,329 → unreadable paper | Model repetition loop in Stage 19 | `_review_publish.py` collapses consecutive duplicate lines and falls back to the unrevised draft when >25 % of lines are duplicated | ✅ Fixed |
@@ -90,13 +90,14 @@ Run `rc-20260918-014503` (resumed from Stage 10) finished `14/14 stages, 0 faile
 
 | Metric | First attempt | Best result |
 |---|---|---|
-| Verified citations | 2 | **12** (integrity 1.0) |
+| Verified citations | 2 | **21** (integrity 1.0) |
 | Text corruption (`the key finding`) | 1,329 | **0** |
-| `degraded` | true | **false** |
+| `degraded` | true | false (last two runs differ) |
 | Literature candidates | 233 | 2,086 |
 | PDF pages | 13 | 16 |
 | Quality-gate score | 1.0 | 3.0 (verdict FAIL) |
-| Ablation | trivial | still trivial (B11 in progress) |
+| Ablation | trivial | gate added; re-run in progress |
+| `Primary metric is undefined` warning | present | **gone** (B13 fixed) |
 
 ---
 
@@ -109,6 +110,8 @@ Run `rc-20260918-014503` (resumed from Stage 10) finished `14/14 stages, 0 faile
 | `0b4a2a8` | Condition-differentiation requirements; trust plan-defined metrics |
 | `ec9df7c` | Honour `metrics[]` when deciding whether the primary metric is defined |
 | `a9f7f63` | Require a runnable `main.py` entry point (Beast Mode prompt + code-generation rules) |
+| `81c43a6` | Stage-10 gate: run the generated experiment and fail when all conditions report the same metric (no-op ablation) |
+| `dc81844` | This document |
 
 ---
 
