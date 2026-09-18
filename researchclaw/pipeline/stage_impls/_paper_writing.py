@@ -1853,8 +1853,17 @@ def _execute_paper_draft(
         ]):
             _quality_warnings.append("Baselines appear to be missing from results")
 
-    # Check 3: Is the metric undefined?
-    if any(phrase in _analysis_lower for phrase in [
+    # Check 3: Is the metric undefined? Only warn when the experiment plan does
+    # not already define a primary metric with an explicit direction and formula.
+    _metric_defined_in_plan = False
+    try:
+        _plan_doc = yaml.safe_load(_read_prior_artifact(run_dir, "exp_plan.yaml") or "") or {}
+        _pm_plan = _plan_doc.get("primary_metric") if isinstance(_plan_doc, dict) else None
+        if isinstance(_pm_plan, dict) and _pm_plan.get("direction") and _pm_plan.get("formula"):
+            _metric_defined_in_plan = True
+    except (yaml.YAMLError, OSError, TypeError):
+        _metric_defined_in_plan = False
+    if not _metric_defined_in_plan and any(phrase in _analysis_lower for phrase in [
         "metric is undefined", "primary_metric is undefined",
         "undefined metric", "metric undefined",
     ]):

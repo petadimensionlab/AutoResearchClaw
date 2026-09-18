@@ -37,3 +37,8 @@ PRIMARY METRIC (mandatory):
       formula: <how it is computed from the simulation>
 - The metric MUST be computable by the simulation (not a placeholder), and must differ between conditions
   that differ by one parameter.
+
+CONDITION DIFFERENTIATION:
+- Design the conditions so at least one parameter value drives the primary metric into a NON-saturated regime;
+  avoid plans where every condition converges to the same value (0 or 1).
+- Specify, per condition, the parameter value that differs and the mechanism step where it is consumed.

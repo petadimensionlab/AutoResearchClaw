@@ -49,3 +49,13 @@ ABLATION / CONDITION INTEGRITY (mandatory — identical conditions are rejected 
   using the definition from the experiment plan.
 - Before finishing, run the experiment once for each condition and confirm the differentiating parameter
   actually changes at least one metric; if not, fix the wiring (do not ship no-op ablations).
+
+CONDITION DIFFERENTIATION (mandatory — identical conditions are rejected):
+- Derive the RNG seed PER CONDITION from the condition name/index (e.g. `seed = base_seed + hash(condition) % 10000`).
+  NEVER pass one shared hardcoded seed to every condition.
+- Choose parameters so the primary metric is NOT saturated: it is invalid for every condition to converge to
+  the same value (typically 0 or 1). Sweep the key parameter if needed to find a regime where outcomes differ.
+- After running all conditions, print the primary metric for each and assert
+  `max(values) - min(values) > 0.05`; if not, print `ABLATION FAILURE: metrics saturated` and adjust the
+  parameters before finishing.
+- The differentiating parameter MUST enter the update rule, not merely be stored in a config dict.
