@@ -250,6 +250,8 @@ def _check_condition_differentiation(
         exe = _sys_d.executable
 
     stdout = ""
+    stderr = ""
+    returncode = 0
     results_doc: dict[str, Any] | None = None
     with _tmp_d.TemporaryDirectory() as _tmp:
         work = Path(_tmp)
@@ -268,7 +270,9 @@ def _check_condition_differentiation(
             )
         except (_sp_d.TimeoutExpired, FileNotFoundError, OSError):
             return True, ""
+        returncode = proc.returncode
         stdout = proc.stdout.decode("utf-8", "replace")
+        stderr = proc.stderr.decode("utf-8", "replace")
         _results_path = work / "results.json"
         if _results_path.is_file():
             try:
@@ -298,6 +302,11 @@ def _check_condition_differentiation(
                 condition_rows.setdefault(m.group(2), {})[m.group(1)] = float(m.group(3))
 
     if not condition_rows:
+        if returncode != 0 or "Traceback" in stderr:
+            _tail = " | ".join((stderr.strip().splitlines() or [""])[-3:])
+            return False, (
+                f"the generated experiment does not run (exit {returncode}): {_tail}"[:400]
+            )
         return True, ""
 
     worst: tuple[str, float, int] | None = None
@@ -1033,7 +1042,9 @@ def _execute_code_generation(
     exp_dir = stage_dir / "experiment"
     exp_dir.mkdir(parents=True, exist_ok=True)
     for fname, code in files.items():
-        (exp_dir / fname).write_text(code, encoding="utf-8")
+        _target = exp_dir / fname
+        _target.parent.mkdir(parents=True, exist_ok=True)
+        _target.write_text(code, encoding="utf-8")
 
     # --- Write validation report ---
     if validation_log or not all_valid:

@@ -572,11 +572,11 @@ class OpenCodeBridge:
             parts = rel.parts
             if any(p.startswith("__pycache__") or p.startswith(".") for p in parts):
                 continue
-            # Flatten to basename — executor expects flat structure
-            basename = rel.name
-            if basename not in files:
+            # Keep relative subpaths (e.g. models/base.py) so package imports survive
+            rel_name = rel.as_posix()
+            if rel_name not in files:
                 try:
-                    files[basename] = py_file.read_text(encoding="utf-8", errors="replace")
+                    files[rel_name] = py_file.read_text(encoding="utf-8", errors="replace")
                 except OSError as exc:
                     logger.warning("Beast mode: failed to read %s: %s", py_file, exc)
 
