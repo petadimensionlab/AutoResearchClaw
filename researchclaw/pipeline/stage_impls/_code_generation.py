@@ -224,6 +224,102 @@ def _check_rl_compatibility(code: str) -> list[str]:
     return errors
 
 
+def _check_condition_differentiation(
+    experiment_dir: Path, python_path: str, timeout: int = 180
+) -> tuple[bool, str]:
+    """Run the generated experiment and detect conditions that are indistinguishable.
+
+    Returns ``(ok, note)``. ``ok`` is False when two or more conditions report the same
+    metric within a tight range, which means the differentiating parameter was never
+    wired into the simulation (a no-op ablation).
+    """
+    import re as _re_d
+    import shutil as _shutil_d
+    import subprocess as _sp_d
+    import sys as _sys_d
+    import tempfile as _tmp_d
+
+    main_py = experiment_dir / "main.py"
+    if not main_py.is_file():
+        return True, ""
+
+    exe = python_path
+    if exe and Path(exe).exists():
+        exe = str(Path(exe).resolve())
+    else:
+        exe = _sys_d.executable
+
+    stdout = ""
+    results_doc: dict[str, Any] | None = None
+    with _tmp_d.TemporaryDirectory() as _tmp:
+        work = Path(_tmp)
+        for item in experiment_dir.iterdir():
+            try:
+                if item.is_file():
+                    _shutil_d.copy2(item, work / item.name)
+                elif item.is_dir() and item.name in ("charts", "data"):
+                    _shutil_d.copytree(item, work / item.name, dirs_exist_ok=True)
+            except OSError:
+                continue
+        try:
+            proc = _sp_d.run(
+                [exe, "main.py"], cwd=str(work),
+                capture_output=True, timeout=timeout,
+            )
+        except (_sp_d.TimeoutExpired, FileNotFoundError, OSError):
+            return True, ""
+        stdout = proc.stdout.decode("utf-8", "replace")
+        _results_path = work / "results.json"
+        if _results_path.is_file():
+            try:
+                import json as _json_d
+                results_doc = _json_d.loads(_results_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                results_doc = None
+
+    condition_rows: dict[str, dict[str, float]] = {}
+    if isinstance(results_doc, dict):
+        _summary = results_doc.get("summary") or results_doc.get("conditions") or {}
+        if isinstance(_summary, dict):
+            for _cond, _vals in _summary.items():
+                if isinstance(_vals, dict):
+                    for _metric, _val in _vals.items():
+                        if isinstance(_val, (int, float)):
+                            condition_rows.setdefault(str(_metric), {})[str(_cond)] = float(_val)
+
+    if not condition_rows:
+        for line in stdout.splitlines():
+            m = _re_d.match(
+                r"^\s*condition=(\S+)\s+(?:\S+\s+)?([A-Za-z_][\w.]*?)(?:_mean)?\s*[:=]\s*"
+                r"(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)",
+                line,
+            )
+            if m:
+                condition_rows.setdefault(m.group(2), {})[m.group(1)] = float(m.group(3))
+
+    if not condition_rows:
+        return True, ""
+
+    worst: tuple[str, float, int] | None = None
+    for metric, per_cond in condition_rows.items():
+        if len(per_cond) < 2:
+            continue
+        vals = list(per_cond.values())
+        rng = max(vals) - min(vals)
+        if worst is None or rng > worst[1]:
+            worst = (metric, rng, len(per_cond))
+
+    if worst is None:
+        return True, ""
+    metric, rng, n_cond = worst
+    if rng <= 0.05:
+        return False, (
+            f"all {n_cond} conditions agree within {rng:.4f} on '{metric}' — "
+            f"the differentiating parameters are not wired into the simulation"
+        )
+    return True, ""
+
+
 def _execute_code_generation(
     stage_dir: Path,
     run_dir: Path,
@@ -1525,6 +1621,22 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             artifacts=tuple(artifacts),
             evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
             error=f"Topic-experiment misalignment: {alignment_note}",
+        )
+
+    _diff_ok, _diff_note = _check_condition_differentiation(
+        stage_dir / "experiment",
+        config.experiment.sandbox.python_path,
+    )
+    if not _diff_ok:
+        logger.error(
+            "Stage 10: condition-differentiation gate failed: %s", _diff_note
+        )
+        return StageResult(
+            stage=Stage.CODE_GENERATION,
+            status=StageStatus.FAILED,
+            artifacts=tuple(artifacts),
+            evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
+            error=f"Conditions are indistinguishable: {_diff_note}",
         )
 
     return StageResult(
