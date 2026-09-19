@@ -1783,7 +1783,13 @@ def _execute_export_publish(
     _fab_flags = _safe_json_loads(_fab_flags_text, {}) if _fab_flags_text else {}
     if (
         isinstance(_fab_flags, dict)
-        and _fab_flags.get("fabrication_suspected")
+        # Sanitize whenever we know the real values, not only when the experiment
+        # is marked failed: a degenerate "successful" run can still produce a
+        # paper whose Results numbers are invented.
+        and (
+            _fab_flags.get("fabrication_suspected")
+            or _fab_flags.get("has_real_data")
+        )
         and _san_report.get("numbers_replaced", 0) == 0  # Phase 1 didn't run/replace
     ):
         import re as _re_fab
@@ -1818,9 +1824,10 @@ def _execute_export_publish(
                 return num_str
             return "--"
 
-        # Only sanitize numbers in Results/Experiments/Evaluation/Ablation sections
+        # Only sanitize numbers in the abstract and the Results/Experiments/
+        # Evaluation/Ablation sections — headline and result numbers live there.
         _result_section_pat = _re_fab.compile(
-            r"(##\s*(?:\d+\.?\s*)?(?:Results|Experiments|Evaluation|Ablation"
+            r"(##\s*(?:\d+\.?\s*)?(?:Abstract|Results|Experiments|Evaluation|Ablation"
             r"|Experimental Results|Quantitative).*?)(?=\n##\s|\Z)",
             _re_fab.DOTALL | _re_fab.IGNORECASE,
         )
