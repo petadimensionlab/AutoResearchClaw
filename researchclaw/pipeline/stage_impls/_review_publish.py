@@ -1824,11 +1824,13 @@ def _execute_export_publish(
                 return num_str
             return "--"
 
-        # Only sanitize numbers in the abstract and the Results/Experiments/
-        # Evaluation/Ablation sections — headline and result numbers live there.
+        # Sanitize the narrative/result sections where experimental numbers are
+        # asserted. Method/Setup is deliberately excluded so that legitimate
+        # hyperparameter values are preserved.
         _result_section_pat = _re_fab.compile(
-            r"(##\s*(?:\d+\.?\s*)?(?:Abstract|Results|Experiments|Evaluation|Ablation"
-            r"|Experimental Results|Quantitative).*?)(?=\n##\s|\Z)",
+            r"(##\s*(?:\d+\.?\s*)?(?:Abstract|Introduction|Related Work|Results|Experiments"
+            r"|Evaluation|Ablation|Experimental Results|Quantitative|Discussion|Conclusion"
+            r"|Limitations).*?)(?=\n##\s|\Z)",
             _re_fab.DOTALL | _re_fab.IGNORECASE,
         )
         _sanitized_count = 0
