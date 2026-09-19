@@ -94,6 +94,8 @@ This repository is a **petadimensionlab 独立版 (standalone derivative)** of [
 
 See [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) for the full write-up (in Japanese).
 
+- 🔄 Upstream sync procedure: [docs/UPSTREAM_SYNC.md](docs/UPSTREAM_SYNC.md)
+
 ---
 
 ## ⚡ One Command. One Paper.
