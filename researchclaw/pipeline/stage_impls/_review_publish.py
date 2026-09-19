@@ -1790,7 +1790,7 @@ def _execute_export_publish(
             _fab_flags.get("fabrication_suspected")
             or _fab_flags.get("has_real_data")
         )
-        and _san_report.get("numbers_replaced", 0) == 0  # Phase 1 didn't run/replace
+        and _san_report.get("prose_numbers_replaced", 0) == 0  # prose not yet cleaned
     ):
         import re as _re_fab
         _real_vals = set()
