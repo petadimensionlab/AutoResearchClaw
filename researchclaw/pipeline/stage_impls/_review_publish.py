@@ -459,6 +459,102 @@ def _execute_paper_revision(
 # Stage 20: Quality Gate
 # ---------------------------------------------------------------------------
 
+def _collect_real_metric_values(exp_summary: Any) -> list[float]:
+    """Numeric values the experiment actually produced (ground truth for checks)."""
+    values: list[float] = []
+    if not isinstance(exp_summary, dict):
+        return values
+    cond_summaries = exp_summary.get("condition_summaries", {})
+    if isinstance(cond_summaries, dict):
+        for cond_data in cond_summaries.values():
+            if not isinstance(cond_data, dict):
+                continue
+            if cond_data.get("status", "") == "failed":
+                continue
+            for key, val in cond_data.items():
+                if isinstance(val, (int, float)) and key not in (
+                    "seed_count", "total_steps", "training_steps",
+                ):
+                    values.append(round(float(val), 4))
+    metrics_summary = exp_summary.get("metrics_summary", {})
+    if isinstance(metrics_summary, dict):
+        for metric_val in metrics_summary.values():
+            if isinstance(metric_val, dict):
+                for stat in ("mean", "min", "max"):
+                    stat_val = metric_val.get(stat)
+                    if isinstance(stat_val, (int, float)):
+                        values.append(round(float(stat_val), 4))
+    return values
+
+
+_SANITIZE_SECTION_PATTERN = re.compile(
+    r"(##\s*(?:\d+\.?\s*)?(?:Abstract|Introduction|Related Work|Results|Experiments"
+    r"|Evaluation|Ablation|Experimental Results|Quantitative|Discussion|Conclusion"
+    r"|Limitations).*?)(?=\n##\s|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+_STAT_CLAIM_PATTERNS = (
+    r"(?P<prefix>\bp\s*[<>=]+\s*)\d+\.\d+",
+    r"(?P<prefix>\b(?:Cohen'?s\s+)?d\s*=\s*)\d+\.\d+",
+    r"(?P<prefix>\br\s*=\s*)-?\d+\.\d+",
+)
+
+
+def _sanitize_prose_numbers(text: str, real_values: list[float]) -> tuple[str, int]:
+    """Blank unsupported numbers in the narrative/result sections of a paper.
+
+    Method/Setup is deliberately excluded so that legitimate hyperparameter
+    values survive. Returns the sanitized text and the number of replacements.
+    """
+    real_floats = [float(v) for v in real_values if isinstance(v, (int, float))]
+    replaced = 0
+
+    def keep_or_blank(num_str: str) -> str:
+        try:
+            num_val = float(num_str)
+        except (ValueError, OverflowError):
+            return num_str
+        if not math.isfinite(num_val):
+            return "--"
+        # Compare at the precision the author wrote. Coarse rounding (e.g. a
+        # 1-decimal match) would treat every value below 0.05 as equal to a
+        # real 0.0 metric and keep invented statistics such as p < 0.001.
+        decimals = len(num_str.split(".")[1]) if "." in num_str else 0
+        tolerance = (10.0 ** -decimals) / 2.0 if decimals else 0.5
+        if any(abs(num_val - rv) <= tolerance for rv in real_floats):
+            return num_str
+        return "--"
+
+    def sanitize_section(section_match: re.Match[str]) -> str:
+        nonlocal replaced
+        section_text = section_match.group(0)
+
+        def blank_stat(stat_match: re.Match[str]) -> str:
+            nonlocal replaced
+            replaced += 1
+            return stat_match.group("prefix") + "--"
+
+        # Significance and effect-size claims are not metric values: a real
+        # 0.001 in the metric table does not license "p < 0.001". Blank the
+        # claim's number unless the run actually reported that statistic.
+        for stat_pattern in _STAT_CLAIM_PATTERNS:
+            section_text = re.sub(stat_pattern, blank_stat, section_text)
+
+        def replace_number(number_match: re.Match[str]) -> str:
+            nonlocal replaced
+            sanitized = keep_or_blank(number_match.group(0))
+            if sanitized == "--":
+                replaced += 1
+            return sanitized
+
+        return re.sub(
+            r"\b\d+\.\d{1,6}\b", replace_number, section_text
+        )
+
+    return _SANITIZE_SECTION_PATTERN.sub(sanitize_section, text), replaced
+
+
 def _execute_quality_gate(
     stage_dir: Path,
     run_dir: Path,
@@ -528,6 +624,19 @@ def _execute_quality_gate(
         # BUG-180: If we found real condition data, don't mark as failed
         if _best_richness > 0:
             _exp_failed = False
+
+    # Ground the paper before judging it: the judge must not score fabricated
+    # numbers, and Stage 22 only sanitizes after this gate has already run.
+    _real_values_20 = _collect_real_metric_values(_exp_summary)
+    if _real_values_20:
+        revised, _pre_sanitized = _sanitize_prose_numbers(revised, _real_values_20)
+        if _pre_sanitized:
+            logger.warning(
+                "Stage 20: blanked %d numbers not grounded in the experiment "
+                "before quality judging",
+                _pre_sanitized,
+            )
+            (stage_dir / "paper_revised.md").write_text(revised, encoding="utf-8")
 
     if _judge_llm is not None:
         _pm = prompts or PromptManager()
@@ -1776,9 +1885,9 @@ def _execute_export_publish(
 
     (stage_dir / "paper_final.md").write_text(final_paper, encoding="utf-8")
 
-    # --- Legacy fabrication sanitization (disabled — superseded by Phase 1 _sanitize_fabricated_data above) ---
-    # Kept but guarded: Phase 1 always-on sanitization handles this now.
-    # Only run if Phase 1 was somehow skipped (should never happen).
+    # Ground the exported paper in the experiment's real values. Stage 20 already
+    # sanitizes before the quality gate; this pass also covers any rewrite that
+    # happened between the gate and export.
     _fab_flags_text = _read_prior_artifact(run_dir, "fabrication_flags.json") or ""
     _fab_flags = _safe_json_loads(_fab_flags_text, {}) if _fab_flags_text else {}
     if (
@@ -1792,80 +1901,10 @@ def _execute_export_publish(
         )
         and _san_report.get("prose_numbers_replaced", 0) == 0  # prose not yet cleaned
     ):
-        import re as _re_fab
-        _real_vals = set()
-        _real_floats: list[float] = []
-        for rv in _fab_flags.get("real_metric_values", []):
-            if isinstance(rv, (int, float)) and math.isfinite(rv):
-                _real_floats.append(float(rv))
-                _real_vals.add(str(round(rv, 4)))
-                _real_vals.add(str(round(rv, 2)))
-                _real_vals.add(str(round(rv, 1)))
-                if rv == int(rv):
-                    _real_vals.add(str(int(rv)))
-
-        def _sanitize_number(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
-            """Replace fabricated numbers with '--' but keep real ones."""
-            num_str = m.group(0)
-            try:
-                num_val = float(num_str)
-            except (ValueError, OverflowError):
-                return num_str
-            if not math.isfinite(num_val):
-                return "--"
-            # Compare at the precision the author wrote. Coarse rounding (e.g. a
-            # 1-decimal match) would treat every value below 0.05 as equal to a
-            # real 0.0 metric and keep invented statistics such as p < 0.001.
-            _decimals = len(num_str.split(".")[1]) if "." in num_str else 0
-            _tol = (10.0 ** -_decimals) / 2.0 if _decimals else 0.5
-            if any(abs(num_val - rv) <= _tol for rv in _real_floats):
-                return num_str
-            return "--"
-
-        # Sanitize the narrative/result sections where experimental numbers are
-        # asserted. Method/Setup is deliberately excluded so that legitimate
-        # hyperparameter values are preserved.
-        _result_section_pat = _re_fab.compile(
-            r"(##\s*(?:\d+\.?\s*)?(?:Abstract|Introduction|Related Work|Results|Experiments"
-            r"|Evaluation|Ablation|Experimental Results|Quantitative|Discussion|Conclusion"
-            r"|Limitations).*?)(?=\n##\s|\Z)",
-            _re_fab.DOTALL | _re_fab.IGNORECASE,
+        final_paper, _sanitized_count = _sanitize_prose_numbers(
+            final_paper, _fab_flags.get("real_metric_values", [])
         )
-        _sanitized_count = 0
-
-        def _sanitize_section(sec_match: _re_fab.Match) -> str:  # type: ignore[name-defined]
-            nonlocal _sanitized_count
-            section_text = sec_match.group(0)
-
-            def _blank_stat(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
-                nonlocal _sanitized_count
-                _sanitized_count += 1
-                return m.group("prefix") + "--"
-
-            # Significance and effect-size claims are not metric values: a real
-            # 0.001 in the metric table does not license "p < 0.001". Blank the
-            # claim's number unless the run actually reported that statistic.
-            for _stat_pat in (
-                r"(?P<prefix>\bp\s*[<>=]+\s*)\d+\.\d+",
-                r"(?P<prefix>\b(?:Cohen'?s\s+)?d\s*=\s*)\d+\.\d+",
-                r"(?P<prefix>\br\s*=\s*)-?\d+\.\d+",
-            ):
-                section_text = _re_fab.sub(_stat_pat, _blank_stat, section_text)
-
-            # Replace decimal numbers (e.g., 73.42, 0.891) but NOT integers
-            # that are likely structural (year, section number, figure number)
-            def _replace_in_section(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
-                nonlocal _sanitized_count
-                result = _sanitize_number(m)
-                if result == "--":
-                    _sanitized_count += 1
-                return result
-            return _re_fab.sub(
-                r"\b\d+\.\d{1,6}\b", _replace_in_section, section_text
-            )
-
-        final_paper = _result_section_pat.sub(_sanitize_section, final_paper)
-
+        _san_report["prose_numbers_replaced"] = _sanitized_count
         if _sanitized_count > 0:
             logger.warning(
                 "Stage 22: Fabrication sanitization — blanked %d unsupported "
