@@ -846,9 +846,20 @@ def _get_evolution_overlay(
         try:
             from researchclaw.evolution import EvolutionStore
 
+            _current_run_id = ""
+            try:
+                _hb = json.loads(
+                    (run_dir / "heartbeat.json").read_text(encoding="utf-8")
+                )
+                _current_run_id = str(_hb.get("run_id", ""))
+            except (OSError, ValueError):
+                _current_run_id = ""
             store = EvolutionStore(run_dir / "evolution")
             evo_overlay = store.build_overlay(
-                stage_name, max_lessons=5, skills_dir=_METACLAW_SKILLS_DIR
+                stage_name,
+                max_lessons=5,
+                skills_dir=_METACLAW_SKILLS_DIR,
+                run_id=_current_run_id,
             )
             if evo_overlay:
                 parts.append(evo_overlay)

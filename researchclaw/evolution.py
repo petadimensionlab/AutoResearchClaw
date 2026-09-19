@@ -427,16 +427,20 @@ class EvolutionStore:
         return lessons
 
     def query_for_stage(
-        self, stage_name: str, *, max_lessons: int = 5
+        self, stage_name: str, *, max_lessons: int = 5, run_id: str = ""
     ) -> list[LessonEntry]:
         """Return the most relevant lessons for a stage, weighted by recency.
 
         Includes lessons that directly match the stage, plus high-severity
-        lessons from related stages.
+        lessons from related stages. When *run_id* is given, only lessons from
+        that run are returned so a shared run directory does not leak failures
+        from earlier attempts into the current one.
         """
         all_lessons = self.load_all()
         scored: list[tuple[float, LessonEntry]] = []
         for lesson in all_lessons:
+            if run_id and lesson.run_id and lesson.run_id != run_id:
+                continue
             weight = _time_weight(lesson.timestamp)
             if weight <= 0.0:
                 continue
@@ -456,6 +460,7 @@ class EvolutionStore:
         *,
         max_lessons: int = 5,
         skills_dir: str = "",
+        run_id: str = "",
     ) -> str:
         """Generate a prompt overlay string for a given stage.
 
@@ -472,7 +477,7 @@ class EvolutionStore:
         parts: list[str] = []
 
         # --- Section 1: intra-run lessons ---
-        lessons = self.query_for_stage(stage_name, max_lessons=max_lessons)
+        lessons = self.query_for_stage(stage_name, max_lessons=max_lessons, run_id=run_id)
         if lessons:
             parts.append("## Lessons from Prior Runs")
             for i, lesson in enumerate(lessons, 1):

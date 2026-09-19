@@ -11,3 +11,13 @@ CITATION REQUIREMENTS — the pipeline verifies every inline citation against th
 - End the paper with a `## References` section listing every cited key.
 - NEVER invent a cite_key, author, title, or year. If no supplied key supports a claim, drop the claim instead of
   fabricating a reference.
+
+NUMERICAL INTEGRITY (mandatory — the quality gate rejects fabricated numbers):
+- Use ONLY numeric values that appear VERBATIM in the supplied experiment data / metrics.
+- Do NOT invent or estimate: percentage improvements, effect sizes (Cohen's d, η², r), p-values,
+  confidence intervals, correlations, or per-condition means/stds that are not in the supplied data.
+- If a statistic is not available, write `not measured` / `not computed` instead of a number.
+- Do NOT describe a result as an improvement (or claim superiority of a method) unless the supplied
+  metrics actually show one. A null result MUST be reported as a null result.
+- Tables and figure captions MUST reproduce supplied values exactly; never fill cells with plausible
+  placeholders or aspirational numbers.
