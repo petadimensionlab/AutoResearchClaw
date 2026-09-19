@@ -1794,8 +1794,10 @@ def _execute_export_publish(
     ):
         import re as _re_fab
         _real_vals = set()
+        _real_floats: list[float] = []
         for rv in _fab_flags.get("real_metric_values", []):
             if isinstance(rv, (int, float)) and math.isfinite(rv):
+                _real_floats.append(float(rv))
                 _real_vals.add(str(round(rv, 4)))
                 _real_vals.add(str(round(rv, 2)))
                 _real_vals.add(str(round(rv, 1)))
@@ -1805,22 +1807,18 @@ def _execute_export_publish(
         def _sanitize_number(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
             """Replace fabricated numbers with '--' but keep real ones."""
             num_str = m.group(0)
-            # Keep the number if it matches any known real metric value
             try:
                 num_val = float(num_str)
-                if not math.isfinite(num_val):
-                    return "--"
-                rounded_strs = {
-                    str(round(num_val, 4)),
-                    str(round(num_val, 2)),
-                    str(round(num_val, 1)),
-                    *(
-                        [str(int(num_val))] if num_val == int(num_val) else []
-                    ),
-                }
-                if rounded_strs & _real_vals:
-                    return num_str  # real value — keep it
             except (ValueError, OverflowError):
+                return num_str
+            if not math.isfinite(num_val):
+                return "--"
+            # Compare at the precision the author wrote. Coarse rounding (e.g. a
+            # 1-decimal match) would treat every value below 0.05 as equal to a
+            # real 0.0 metric and keep invented statistics such as p < 0.001.
+            _decimals = len(num_str.split(".")[1]) if "." in num_str else 0
+            _tol = (10.0 ** -_decimals) / 2.0 if _decimals else 0.5
+            if any(abs(num_val - rv) <= _tol for rv in _real_floats):
                 return num_str
             return "--"
 
@@ -1838,6 +1836,22 @@ def _execute_export_publish(
         def _sanitize_section(sec_match: _re_fab.Match) -> str:  # type: ignore[name-defined]
             nonlocal _sanitized_count
             section_text = sec_match.group(0)
+
+            def _blank_stat(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
+                nonlocal _sanitized_count
+                _sanitized_count += 1
+                return m.group("prefix") + "--"
+
+            # Significance and effect-size claims are not metric values: a real
+            # 0.001 in the metric table does not license "p < 0.001". Blank the
+            # claim's number unless the run actually reported that statistic.
+            for _stat_pat in (
+                r"(?P<prefix>\bp\s*[<>=]+\s*)\d+\.\d+",
+                r"(?P<prefix>\b(?:Cohen'?s\s+)?d\s*=\s*)\d+\.\d+",
+                r"(?P<prefix>\br\s*=\s*)-?\d+\.\d+",
+            ):
+                section_text = _re_fab.sub(_stat_pat, _blank_stat, section_text)
+
             # Replace decimal numbers (e.g., 73.42, 0.891) but NOT integers
             # that are likely structural (year, section number, figure number)
             def _replace_in_section(m: _re_fab.Match) -> str:  # type: ignore[name-defined]
