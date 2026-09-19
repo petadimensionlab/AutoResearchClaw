@@ -34,6 +34,11 @@ infrastructure failures (auth, endpoints, timeouts, client versions) are documen
 | B16 | Revision degenerated into repetition — `"the key finding"` ×1,329 → unreadable paper | Model repetition loop in Stage 19 | `_review_publish.py` collapses consecutive duplicate lines and falls back to the unrevised draft when >25 % of lines are duplicated | ✅ Fixed |
 | B17 | Repeated forced `REFINE` → rollback to Stage 13 (`Max pivot attempts (2) reached`) | B11/B12 metrics do not move | Follows B11 | 🔄 In progress |
 | B18 | Many hours lost to repeated restarts | Alternating A-class and B-class failures | Partially mitigated by the fixes above | ⚠️ Open |
+| B19 | Fabricated numbers survived sanitization even though tables had been cleaned | The prose pass was gated on `numbers_replaced` (the **table** counter), so any run that sanitized a table skipped prose entirely — `prose_numbers_replaced` stayed `0` | Gate the prose pass on `prose_numbers_replaced` instead | ✅ Fixed (`a20079a`) |
+| B20 | Sanitization never ran on a "successful" but degenerate experiment | `fabrication_suspected = (experiment failed AND no real data)`. A degenerate *success* is neither, so the flag stayed `False` and the guard was skipped | Sanitize whenever `has_real_data` is true | ✅ Fixed (`235a3bb`) |
+| B21 | `p < 0.001`, `p = 0.03` and `d = 0.21` survived while `34.2%` was blanked | Two defects: the keep-check accepted a **1-decimal** match, so every value below 0.05 equalled a real `0.0` metric; and p-values were only checked as bare numbers, so a real `0.001` metric licensed the *claim* `p < 0.001` | Compare numbers at the precision the author wrote; blank the number of `p`/`d`/`r` claims outright | ✅ Fixed (`6f644fc`) |
+| B22 | The quality gate judged the **pre-sanitization** draft | Stage 20 runs before Stage 22, so the judge always saw the fabricated numbers — the gate could never pass however good the export-time sanitizer was | Extract the sanitizer into `_sanitize_prose_numbers()` and run it at the start of Stage 20 | ✅ Fixed (`fd33c83`) |
+| B23 | Integer percentages (`62%`, `8-12%`) remain unverified in the Abstract | The sanitizer only matches decimal tokens (`\b\d+\.\d{1,6}\b`) | Not fixed — extend to integer percentages | ⚠️ Open |
 
 ---
 
@@ -82,6 +87,42 @@ infrastructure failures (auth, endpoints, timeouts, client versions) are documen
 - **B18**: the long feedback loop is inherent to running a 23-stage pipeline on a slow/free model; each fix
   requires a partial re-run.
 
+### B-6. Anti-fabrication sanitization chain (B19–B23)
+
+The pipeline's mechanical guard removes numbers the experiment never produced. Four independent defects
+had made it silently useless; all four are fixed and were verified together.
+
+```
+Stage 20 (QUALITY_GATE)              Stage 22 (EXPORT_PUBLISH)
+  _collect_real_metric_values()        _sanitize_prose_numbers()
+  _sanitize_prose_numbers()   ───►     (same shared helper, re-run on any
+  ↓ writes paper_revised.md            rewrite between gate and export)
+  judge scores the GROUNDED text
+```
+
+- **B19** — the prose pass was gated on `numbers_replaced`, which counts **table** replacements, so
+  `0 != 0` was false and prose was never cleaned (`prose_numbers_replaced` stayed `0` in
+  `sanitization_report.json`). Gate on the prose counter.
+- **B20** — `fabrication_suspected` is true only when the experiment *failed* **and** had no data.
+  The observed run was a degenerate *success* (`adoption_rate: 0.0`), so the flag was `False` and the
+  guard never ran. Sanitize whenever real values are known.
+- **B21** — `_sanitize_number` kept a number when its **1-decimal** rounding matched a real value.
+  Every value below 0.05 rounds to `0.0`, and real `0.0` metrics exist, so `p < 0.001`, `p = 0.03`
+  and `d = 0.21` were all treated as verified. Compare at the written precision, and blank `p`/`d`/`r`
+  claim numbers regardless of metric coincidences.
+- **B22** — the judge ran before the sanitizer, so it always scored fabricated text. The gate now
+  sanitizes first.
+- Coverage: the section allowlist is Abstract / Introduction / Results / Experiments / Evaluation /
+  Ablation / Discussion / Conclusion / Limitations. **Method/Setup is deliberately excluded** so
+  hyperparameters survive.
+- **B23** — only decimal tokens are matched, so integer percentages (`62%`, `8-12%`) are unaffected.
+  This is the remaining gap.
+
+Measured effect on the shared run: `34.2%`, `Cohen's d = 0.67`, `p < 0.001`, `p = 0.03`, `d = 0.21`
+all went from a combined 37 occurrences to **0**; Stage 20 blanked 174 numbers, Stage 22 another 162.
+The quality gate rose 2.1 → **2.8**, and its objection changed from *"critical data fabrication
+detected"* to *"extensive placeholder values (`--`) … a template rather than a completed manuscript"*.
+
 ---
 
 ## Evidence — best completed run so far
@@ -99,6 +140,17 @@ Run `rc-20260918-014503` (resumed from Stage 10) finished `14/14 stages, 0 faile
 | Ablation | trivial | gate added; re-run in progress |
 | `Primary metric is undefined` warning | present | **gone** (B13 fixed) |
 
+Latest resumed run `rc-20260919-130241-5a0aab` (from Stage 20, 2026-09-19):
+
+| Metric | Earlier runs | Latest |
+|---|---|---|
+| Invented decimals (`34.2%`, `d = 0.67`, `p < 0.001`) | 37 occurrences | **0** |
+| Numbers blanked | 0 (guard never ran) | **174** (Stage 20) + **162** (Stage 22) |
+| Quality gate | 1.0 → 2.1 (verdict "fabrication detected") | **2.8** (verdict: "template — placeholders") |
+| Verified citations | 2 → 21 | 19 (18 verified, score 0.947) |
+| PDF pages | 13 → 16 | 22 |
+| Experiment | saturated (all conditions equal) | degenerate (`adoption_rate: 0.0`, 1/18 conditions ran) |
+
 ---
 
 ## Fixes committed
@@ -112,16 +164,28 @@ Run `rc-20260918-014503` (resumed from Stage 10) finished `14/14 stages, 0 faile
 | `a9f7f63` | Require a runnable `main.py` entry point (Beast Mode prompt + code-generation rules) |
 | `81c43a6` | Stage-10 gate: run the generated experiment and fail when all conditions report the same metric (no-op ablation) |
 | `dc81844` | This document |
+| `717f752` | Keep the unrevised draft when the revision is still < 80 % of the draft length |
+| `c8a3cb1` | Forbid fabricated statistics in prompts; scope evolution lessons to the current `run_id` |
+| `235a3bb` | B20: sanitize invented result numbers even when the experiment is marked "successful" |
+| `a20079a` | B19: run the prose pass even when tables were sanitized (gate on `prose_numbers_replaced`) |
+| `2cf9bc5` | Prose sanitization extended to the narrative sections (Abstract/Intro/Discussion/Conclusion) |
+| `6f644fc` | B21: match numbers at written precision; blank ungrounded `p`/`d`/`r` claims |
+| `fd33c83` | B22: ground the paper before the quality gate judges it (shared `_sanitize_prose_numbers`) |
+
+See [`docs/HANDOVER.md`](HANDOVER.md) for run commands, environment, and the current blocker list.
 
 ---
 
 ## Open items
 
-1. **B11/B12** — verify the new differentiation rules end-to-end (in progress); if the model still
-   hardcodes one seed, add a post-generation check that rejects a run whose per-condition metric range
-   is ≤ 0.05 and re-generates.
-2. **B9** — stop the revision from shortening the paper (enforce a minimum word count more aggressively or
+1. **B11/B17 (top priority)** — the experiment is still degenerate: only 1 of the 18 claimed conditions
+   ran and `adoption_rate: 0.0`. The anti-fabrication guard now blanks every ungrounded number, so the
+   paper is rejected as a *template* rather than as a *fabrication*: the remaining work is upstream, in
+   Stage 10–12, not in sanitization.
+2. **B23** — blank integer percentages (`62%`, `8-12%`) in the narrative sections; only decimals are
+   matched today.
+3. **B9** — stop the revision from shortening the paper (enforce a minimum word count more aggressively or
    merge rather than regenerate).
-3. **B8** — eliminate the remaining fabricated citation keys (4 in the last run).
-4. **B15/B3** — quality gate below threshold; the "alignment" check is cosmetic.
-5. **B5-page limit** — 16-page paper vs. the 10-page conference limit.
+4. **B8** — eliminate the remaining fabricated citation keys (4 in the last run).
+5. **B15/B3** — quality gate at 2.8 vs the 3.0 threshold; the "alignment" check is cosmetic.
+6. **B5-page limit** — 22-page paper vs. the 10-page conference limit; also 7 defined-but-unreferenced figures.

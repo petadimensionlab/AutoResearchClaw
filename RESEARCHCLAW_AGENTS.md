@@ -1,5 +1,20 @@
 # AutoResearchClaw — Agent Configuration
 
+## Read first (continuing an in-flight run)
+
+If you are picking up an **existing** AutoResearchClaw effort (not starting fresh), read these
+before touching anything:
+
+1. [`docs/HANDOVER.md`](docs/HANDOVER.md) — current objective, run directory, exact commands,
+   environment, blockers, and traps.
+2. [`docs/REPORT_GENERATION_FAILURES.md`](docs/REPORT_GENERATION_FAILURES.md) — the B1–B23 failure
+   catalogue: symptom → root cause → commit that fixed it.
+3. [`README.md` → Troubleshooting](README.md#-troubleshooting-field-notes) — infrastructure
+   failures (ACP errors, provider limits, path bugs).
+
+The in-flight run for this repo lives in `artifacts/rc-20260914-033427-5a0aab/`, and config
+changes are local-only because `config.arc.yaml` is gitignored.
+
 ## Overview
 
 ResearchClaw is an autonomous research pipeline that takes a research topic and produces a complete academic paper through 23 automated stages. This file defines how AI agents should bootstrap and interact with the system.

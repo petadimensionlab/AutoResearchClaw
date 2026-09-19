@@ -116,6 +116,21 @@ artifacts/<run-id>/
 | `sandbox` | Execute generated code locally via subprocess | `experiment.mode: sandbox` |
 | `ssh_remote` | Execute on remote GPU server via SSH | `experiment.mode: ssh_remote` |
 
+### Resuming an existing run
+
+Before continuing an in-flight run, read **`docs/HANDOVER.md`** (current state, exact commands,
+blockers, traps) and **`docs/REPORT_GENERATION_FAILURES.md`** (symptom → root cause → commit).
+
+Key points for this repo:
+
+- Run from the **repo root** (`config.arc.yaml` is gitignored, so config edits are local-only).
+- The ACP session model is **sticky at creation** — after changing a model, run
+  `acpx --ttl 0 --cwd <repo> opencode sessions close researchclaw` then `... sessions ensure --name researchclaw`.
+- Stage 20 (QUALITY_GATE) sanitizes the paper **before** judging it; if fabricated numbers appear in a
+  quality report, check that `_sanitize_prose_numbers()` ran (the log line is
+  `Stage 20: blanked N numbers not grounded in the experiment before quality judging`).
+- Pipeline logs are block-buffered: verify liveness with the acpx stream file size, not log silence.
+
 ### Troubleshooting
 
 Baseline checks:
