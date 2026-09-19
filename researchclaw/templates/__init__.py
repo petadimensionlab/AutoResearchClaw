@@ -20,12 +20,20 @@ from researchclaw.templates.conference import (
     list_conferences,
 )
 from researchclaw.templates.converter import markdown_to_latex
+from researchclaw.templates.docx_exporter import (
+    DocxResult,
+    markdown_to_docx,
+    pandoc_available,
+)
 
 __all__ = [
     "CONFERENCE_REGISTRY",
     "ConferenceTemplate",
+    "DocxResult",
     "ML_CHECKLIST_TEMPLATES",
     "get_template",
     "list_conferences",
+    "markdown_to_docx",
     "markdown_to_latex",
+    "pandoc_available",
 ]

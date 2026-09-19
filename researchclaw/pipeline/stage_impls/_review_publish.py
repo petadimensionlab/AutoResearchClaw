@@ -1640,6 +1640,9 @@ def _execute_export_publish(
 ) -> StageResult:
     revised = _read_prior_artifact(run_dir, "paper_revised.md") or ""
 
+    # Effective deliverable format; getattr tolerates older/partial configs.
+    _export_format = getattr(config.export, "output_format", "docx")
+
     # --- Detect domain once for export-stage formatting decisions ---
     _export_preferred_template = ""
     _export_guidance = ""
@@ -2464,92 +2467,128 @@ def _execute_export_publish(
         except Exception as _rmf_exc:  # noqa: BLE001
             logger.debug("Stage 22: remove_missing_figures skipped: %s", _rmf_exc)
 
-        # Compile verification
-        try:
-            from researchclaw.templates.compiler import compile_latex
-            _compile_result = compile_latex(stage_dir / "paper.tex", max_attempts=2)
-            if _compile_result.success:
-                logger.info("Stage 22: LaTeX compilation verification PASSED")
-                artifacts.append("paper.pdf")
-                # PDF-as-reviewer: LLM-based visual review of compiled PDF
-                _pdf_path = stage_dir / "paper.pdf"
-                if _pdf_path.exists() and llm is not None:
-                    try:
-                        _pdf_review = _get_review_compiled_pdf()(
-                            _pdf_path, llm, config.research.topic
-                        )
-                        if _pdf_review:
-                            (stage_dir / "pdf_review.json").write_text(
-                                json.dumps(_pdf_review, indent=2, ensure_ascii=False),
-                                encoding="utf-8",
+        # Compile verification — LaTeX/both only; docx skips PDF compilation.
+        if _export_format in ("latex", "both"):
+            try:
+                from researchclaw.templates.compiler import compile_latex
+                _compile_result = compile_latex(stage_dir / "paper.tex", max_attempts=2)
+                if _compile_result.success:
+                    logger.info("Stage 22: LaTeX compilation verification PASSED")
+                    artifacts.append("paper.pdf")
+                    # PDF-as-reviewer: LLM-based visual review of compiled PDF
+                    _pdf_path = stage_dir / "paper.pdf"
+                    if _pdf_path.exists() and llm is not None:
+                        try:
+                            _pdf_review = _get_review_compiled_pdf()(
+                                _pdf_path, llm, config.research.topic
                             )
-                            artifacts.append("pdf_review.json")
-                            _pdf_score = _pdf_review.get("overall_score", 0)
-                            if _pdf_score < 5:
-                                logger.warning(
-                                    "Stage 22: PDF visual review score %d/10 — %s",
-                                    _pdf_score,
-                                    _pdf_review.get("summary", ""),
+                            if _pdf_review:
+                                (stage_dir / "pdf_review.json").write_text(
+                                    json.dumps(_pdf_review, indent=2, ensure_ascii=False),
+                                    encoding="utf-8",
                                 )
-                            else:
-                                logger.info(
-                                    "Stage 22: PDF visual review score %d/10",
-                                    _pdf_score,
-                                )
-                    except Exception as _pdf_exc:  # noqa: BLE001
-                        logger.debug("Stage 22: PDF review skipped: %s", _pdf_exc)
-                # Post-compilation quality checks
-                try:
-                    from researchclaw.templates.compiler import check_compiled_quality
-                    _qc = check_compiled_quality(stage_dir / "paper.tex")
-                    if _qc.warnings_summary:
-                        logger.warning(
-                            "Stage 22: Quality checks: %s",
-                            "; ".join(_qc.warnings_summary),
+                                artifacts.append("pdf_review.json")
+                                _pdf_score = _pdf_review.get("overall_score", 0)
+                                if _pdf_score < 5:
+                                    logger.warning(
+                                        "Stage 22: PDF visual review score %d/10 — %s",
+                                        _pdf_score,
+                                        _pdf_review.get("summary", ""),
+                                    )
+                                else:
+                                    logger.info(
+                                        "Stage 22: PDF visual review score %d/10",
+                                        _pdf_score,
+                                    )
+                        except Exception as _pdf_exc:  # noqa: BLE001
+                            logger.debug("Stage 22: PDF review skipped: %s", _pdf_exc)
+                    # Post-compilation quality checks
+                    try:
+                        from researchclaw.templates.compiler import check_compiled_quality
+                        _qc = check_compiled_quality(stage_dir / "paper.tex")
+                        if _qc.warnings_summary:
+                            logger.warning(
+                                "Stage 22: Quality checks: %s",
+                                "; ".join(_qc.warnings_summary),
+                            )
+                        (stage_dir / "compilation_quality.json").write_text(
+                            json.dumps({
+                                "page_count": _qc.page_count,
+                                "unresolved_refs": _qc.unresolved_refs,
+                                "unresolved_cites": _qc.unresolved_cites,
+                                "overfull_hboxes": len(_qc.overfull_hboxes),
+                                "orphan_figures": _qc.orphan_figures,
+                                "orphan_labels": _qc.orphan_labels,
+                                "warnings": _qc.warnings_summary,
+                            }, indent=2),
+                            encoding="utf-8",
                         )
-                    (stage_dir / "compilation_quality.json").write_text(
-                        json.dumps({
-                            "page_count": _qc.page_count,
-                            "unresolved_refs": _qc.unresolved_refs,
-                            "unresolved_cites": _qc.unresolved_cites,
-                            "overfull_hboxes": len(_qc.overfull_hboxes),
-                            "orphan_figures": _qc.orphan_figures,
-                            "orphan_labels": _qc.orphan_labels,
-                            "warnings": _qc.warnings_summary,
-                        }, indent=2),
-                        encoding="utf-8",
-                    )
-                    artifacts.append("compilation_quality.json")
-                    # BUG-27: Warn if page count exceeds limit
-                    _page_limit = 10
-                    if _qc.page_count and _qc.page_count > _page_limit:
-                        logger.warning(
-                            "BUG-27: Paper is %d pages (limit %d). "
-                            "Consider tightening content in revision.",
-                            _qc.page_count, _page_limit,
-                        )
-                except Exception as _qc_exc:  # noqa: BLE001
-                    logger.debug("Stage 22: Quality checks skipped: %s", _qc_exc)
-            else:
-                logger.warning("Stage 22: LaTeX compilation verification FAILED: %s", _compile_result.errors[:3])
-                # Add compilation failure comment to .tex
-                _tex_path = stage_dir / "paper.tex"
-                if _tex_path.exists():
-                    _tex_content = _tex_path.read_text(encoding="utf-8")
-                    if "% WARNING: Compilation failed" not in _tex_content:
-                        _tex_content = (
-                            "% WARNING: Compilation failed. Errors:\n"
-                            + "".join(f"% {e}\n" for e in _compile_result.errors[:5])
-                            + _tex_content
-                        )
-                        _tex_path.write_text(_tex_content, encoding="utf-8")
-        except Exception as _compile_exc:  # noqa: BLE001
-            logger.debug("Stage 22: Compile verification skipped: %s", _compile_exc)
+                        artifacts.append("compilation_quality.json")
+                        # BUG-27: Warn if page count exceeds limit
+                        _page_limit = 10
+                        if _qc.page_count and _qc.page_count > _page_limit:
+                            logger.warning(
+                                "BUG-27: Paper is %d pages (limit %d). "
+                                "Consider tightening content in revision.",
+                                _qc.page_count, _page_limit,
+                            )
+                    except Exception as _qc_exc:  # noqa: BLE001
+                        logger.debug("Stage 22: Quality checks skipped: %s", _qc_exc)
+                else:
+                    logger.warning("Stage 22: LaTeX compilation verification FAILED: %s", _compile_result.errors[:3])
+                    # Add compilation failure comment to .tex
+                    _tex_path = stage_dir / "paper.tex"
+                    if _tex_path.exists():
+                        _tex_content = _tex_path.read_text(encoding="utf-8")
+                        if "% WARNING: Compilation failed" not in _tex_content:
+                            _tex_content = (
+                                "% WARNING: Compilation failed. Errors:\n"
+                                + "".join(f"% {e}\n" for e in _compile_result.errors[:5])
+                                + _tex_content
+                            )
+                            _tex_path.write_text(_tex_content, encoding="utf-8")
+            except Exception as _compile_exc:  # noqa: BLE001
+                logger.debug("Stage 22: Compile verification skipped: %s", _compile_exc)
     except Exception as exc:  # noqa: BLE001
         logger.error("LaTeX generation failed: %s", exc, exc_info=True)
 
     # (Charts, BUG-99 path fix, and remove_missing_figures are now handled
     #  BEFORE compile_latex() — see "Pre-compilation" block above.)
+
+    # --- Word (.docx) export via pandoc — the default deliverable ---
+    if _export_format in ("docx", "both"):
+        try:
+            from researchclaw.templates import markdown_to_docx
+
+            _docx_reference: Path | None = None
+            _docx_ref_setting = getattr(config.export, "docx_reference", "") or ""
+            if _docx_ref_setting:
+                _candidate_reference = Path(_docx_ref_setting)
+                if _candidate_reference.exists():
+                    _docx_reference = _candidate_reference
+
+            _docx_bib = stage_dir / "references.bib"
+            _docx_result = markdown_to_docx(
+                final_paper,
+                stage_dir / "paper.docx",
+                title=_extract_paper_title(final_paper),
+                authors=config.export.authors,
+                bib_path=_docx_bib if _docx_bib.exists() else None,
+                reference_doc=_docx_reference,
+            )
+            if _docx_result.success:
+                artifacts.append("paper.docx")
+                logger.info("Stage 22: Exported paper.docx via pandoc")
+                for _docx_warning in _docx_result.warnings:
+                    logger.warning("Stage 22: DOCX export warning: %s", _docx_warning)
+            else:
+                logger.warning(
+                    "Stage 22: DOCX export failed (pandoc_available=%s): %s",
+                    _docx_result.pandoc_available,
+                    _docx_result.error,
+                )
+        except Exception as _docx_exc:  # noqa: BLE001
+            logger.warning("Stage 22: DOCX export skipped: %s", _docx_exc)
 
     # --- Code packaging: multi-file directory or single file ---
     exp_final_dir_path = _read_prior_artifact(run_dir, "experiment_final/")

@@ -94,6 +94,8 @@ KB_SUBDIRS = (
     "reviews",
 )
 PROJECT_MODES = {"docs-first", "semi-auto", "full-auto"}
+EXPORT_FORMATS = {"docx", "latex", "both"}
+DEFAULT_EXPORT_FORMAT = "docx"
 KB_BACKENDS = {"markdown", "obsidian"}
 EXPERIMENT_MODES = {
     "simulated",
@@ -122,6 +124,11 @@ def _is_blank(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _normalize_export_format(value: Any) -> str:
+    fmt = str(value or "").strip().lower()
+    return fmt if fmt in EXPORT_FORMATS else DEFAULT_EXPORT_FORMAT
+
+
 @dataclass(frozen=True)
 class ValidationResult:
     ok: bool
@@ -143,6 +150,12 @@ class ResearchConfig:
     daily_paper_count: int = 0
     quality_threshold: float = 0.0
     graceful_degradation: bool = True
+    # Literature-first bypass flag consumed by the paper-writing stages
+    # (``_topic_is_literature_first``). Empty string = normal behavior.
+    # Set to "docs-first" to bypass the "all simulated" / "no real metrics"
+    # hard blocks when the paper is grounded in a supplied analysis report
+    # rather than a fresh sandbox experiment.
+    project_mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -662,11 +675,23 @@ class WebSearchConfig:
 
 @dataclass(frozen=True)
 class ExportConfig:
-    """Configuration for paper export and LaTeX generation."""
+    """Configuration for paper export.
+
+    ``output_format`` controls the primary deliverable:
+
+    - ``"docx"`` (default): convert the markdown draft to a Word document
+      via pandoc. LaTeX source is still emitted for compatibility, but
+      PDF compilation is skipped.
+    - ``"latex"``: conference LaTeX (``paper.tex``) + compiled ``paper.pdf``.
+    - ``"both"``: markdown + docx + LaTeX + compiled PDF.
+    """
 
     target_conference: str = "neurips_2025"
     authors: str = "Anonymous"
     bib_file: str = "references"
+    output_format: str = DEFAULT_EXPORT_FORMAT
+    # Optional pandoc reference .docx used for Word styling.
+    docx_reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -965,6 +990,7 @@ class RCConfig:
                 daily_paper_count=int(research.get("daily_paper_count", 0)),
                 quality_threshold=float(research.get("quality_threshold", 0.0)),
                 graceful_degradation=bool(research.get("graceful_degradation", True)),
+                project_mode=str(research.get("project_mode", "") or ""),
             ),
             runtime=RuntimeConfig(
                 timezone=runtime["timezone"],
@@ -1008,6 +1034,8 @@ class RCConfig:
                 target_conference=export.get("target_conference", "neurips_2025"),
                 authors=export.get("authors", "Anonymous"),
                 bib_file=export.get("bib_file", "references"),
+                output_format=_normalize_export_format(export.get("output_format")),
+                docx_reference=str(export.get("docx_reference", "") or ""),
             ),
             prompts=PromptsConfig(
                 custom_file=prompts.get("custom_file", ""),

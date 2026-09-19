@@ -83,6 +83,36 @@ results = execute_iterative_pipeline(
 )
 ```
 
+**Option D: Paper-only mode (no literature search or experiments)**
+
+Build a paper from a markdown analysis report by running only the paper-construction stages (16-23). The command seeds a run directory from the report and sets `research.project_mode = "docs-first"` so the anti-fabrication gates treat the report as the grounding source.
+
+```bash
+researchclaw paper --report analysis_report.md --output artifacts/my-paper \
+    --topic "My analysis" --authors "A. Author" --output-format docx
+```
+
+```python
+from researchclaw.paper import build_paper_from_report
+
+result = build_paper_from_report("analysis_report.md", "artifacts/my-paper", output_format="docx")
+print(result.paper_docx, result.ok)
+```
+
+The report may include a title (`# ...`), an optional `## Abstract`, findings, optional metric tables (pipe tables with a label column and a numeric column), and an optional fenced `bibtex` block. Missing sections degrade gracefully. On success the command prints the `paper_final.md`, `paper.docx`, `paper.tex`, and `references.bib` paths.
+
+### Export Formats
+
+`export.output_format` controls the primary deliverable:
+
+| Value | Output |
+|-------|--------|
+| `docx` (default) | `paper.docx` via pandoc; `paper.tex` is still emitted, PDF compilation is skipped |
+| `latex` | `paper.tex` + compiled `paper.pdf` |
+| `both` | markdown + docx + LaTeX + compiled PDF |
+
+`export.docx_reference` optionally points to a pandoc reference `.docx` for Word styling. If `pandoc` is missing, docx export logs a warning and the run continues; the other artifacts are still produced.
+
 ### Output Structure
 
 After a successful run, the output directory contains:
@@ -102,6 +132,9 @@ artifacts/<run-id>/
 ├── stage-17/
 │   └── paper_draft.md      # Full paper draft
 ├── stage-22/
+│   ├── paper_final.md      # Final paper (Markdown)
+│   ├── paper.docx          # Word document (default export via pandoc)
+│   ├── paper.tex           # LaTeX source (PDF only with output_format: latex|both)
 │   └── charts/             # Generated visualizations
 │       ├── metric_trajectory.png
 │       └── experiment_comparison.png
@@ -174,6 +207,7 @@ Field notes — failures seen in real long runs (details in README "Troubleshoot
 
 **Export**
 - `pdflatex not installed` → install a TeX distribution and the missing `.sty` packages (`tlmgr install …`), or compile `paper.tex` on Overleaf. The pipeline degrades gracefully.
+- **No `paper.docx`** → `pandoc` is not installed (or not on `PATH`). Install it, or set `export.output_format: "latex"`. Docx export degrades gracefully: the run continues with a warning and the other artifacts are still produced.
 
 **Not wired in v0.5.0**
 - `experiment.cli_agent.provider` (`claude_code` / `codex`) is implemented (`create_code_agent`) but never called; Stage 10 uses the main LLM unless Beast Mode is enabled.

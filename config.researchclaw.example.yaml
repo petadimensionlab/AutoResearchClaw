@@ -8,6 +8,10 @@ research:
     - "machine-learning"
   daily_paper_count: 10
   quality_threshold: 4.0
+  # project_mode: "docs-first"  # Bypass the "all simulated" / "no real metrics" hard blocks
+  #                             # for report-grounded (non-experimental) papers. Set automatically
+  #                             # by `researchclaw paper`; normal `researchclaw run` is unaffected
+  #                             # unless you set it here.
 
 runtime:
   timezone: "America/New_York"
@@ -218,6 +222,18 @@ experiment:
     gemini_model: "gemini-2.5-flash-image"
     strict_mode: false
     dpi: 300
+
+# === Export ===
+export:
+  target_conference: "neurips_2025"  # neurips_2025 | iclr_2026 | icml_2026
+  authors: "Anonymous"
+  bib_file: "references"
+  # docx (default): final markdown -> paper.docx via pandoc; paper.tex is still
+  #                 emitted but PDF compilation is skipped (pandoc required).
+  # latex:          conference paper.tex + compiled paper.pdf (original behavior)
+  # both:           markdown + docx + LaTeX + compiled PDF
+  output_format: "docx"
+  docx_reference: ""                 # Optional pandoc reference .docx for Word styling
 
 # === Prompts ===
 # Customize LLM prompts by pointing to your own YAML file.

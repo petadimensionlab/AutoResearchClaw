@@ -85,6 +85,17 @@
 
 ---
 
+## 🧪 petadimensionlab Standalone Derivative
+
+This repository is a **petadimensionlab 独立版 (standalone derivative)** of [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw). It preserves the original MIT license and attribution (see [`LICENSE`](LICENSE) and the upstream project) and adds two headline improvements:
+
+- **📝 Paper-only mode**: `researchclaw paper` builds a paper (stages 16-23) directly from a markdown analysis report, skipping literature search and experiments.
+- **📘 Word (.docx) default export**: the final markdown is converted to `.docx` via pandoc; LaTeX and PDF stay available with `--output-format latex|both`.
+
+See [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) for the full write-up (in Japanese).
+
+---
+
 ## ⚡ One Command. One Paper.
 
 ```bash
@@ -98,6 +109,28 @@ researchclaw run --topic "Your research idea here" --mode co-pilot
 
 ---
 
+## 📝 Paper-Only Mode (from a markdown analysis report)
+
+Already have your results? Skip literature search and experiments. `researchclaw paper` seeds a run directory from a markdown analysis report and runs only the paper-construction stages (16-23: outline, draft, peer review, revision, quality gate, archive, export, citation verify).
+
+```bash
+researchclaw paper --report analysis_report.md --output artifacts/my-paper \
+    --topic "My analysis" --authors "A. Author" --output-format docx
+```
+
+Or from Python:
+
+```python
+from researchclaw.paper import build_paper_from_report
+
+result = build_paper_from_report("analysis_report.md", "artifacts/my-paper", output_format="docx")
+print(result.paper_docx, result.ok)
+```
+
+The report can be any markdown with a title (`# ...`), an optional `## Abstract`, findings, optional metric tables (pipe tables with a label column and a numeric column), and an optional fenced `bibtex` block. Missing sections just degrade gracefully. The command sets `research.project_mode = "docs-first"` so the anti-fabrication gates treat the supplied report as the grounding source instead of demanding a fresh sandbox experiment. `--output-format` overrides `export.output_format` for the run; on success the command prints the produced `paper_final.md`, `paper.docx`, `paper.tex`, and `references.bib` paths.
+
+---
+
 ## 🤔 What Is This?
 
 **You think it. AutoResearchClaw writes it. You guide the key decisions.**
@@ -106,7 +139,8 @@ Drop a research topic — get back a full academic paper with real literature fr
 
 <table>
 <tr><td>📄</td><td><code>paper_draft.md</code></td><td>Full academic paper (Introduction, Related Work, Method, Experiments, Results, Conclusion)</td></tr>
-<tr><td>📐</td><td><code>paper.tex</code></td><td>Conference-ready LaTeX (NeurIPS / ICLR / ICML templates)</td></tr>
+<tr><td>📘</td><td><code>paper.docx</code></td><td>Word document (default export, converted from the final markdown via pandoc)</td></tr>
+<tr><td>📐</td><td><code>paper.tex</code></td><td>Conference-ready LaTeX source (NeurIPS / ICLR / ICML templates); PDF is compiled only with <code>latex</code>/<code>both</code></td></tr>
 <tr><td>📚</td><td><code>references.bib</code></td><td>Real BibTeX references from OpenAlex, Semantic Scholar and arXiv — auto-pruned to match inline citations</td></tr>
 <tr><td>🔍</td><td><code>verification_report.json</code></td><td>4-layer citation integrity + relevance verification (arXiv, CrossRef, DataCite, LLM)</td></tr>
 <tr><td>🧪</td><td><code>experiment runs/</code></td><td>Generated code + sandbox results + structured JSON metrics</td></tr>
@@ -271,6 +305,7 @@ researchclaw run --config config.yaml --topic "Your research idea" --auto-approv
 | Method | How |
 |--------|-----|
 | **Standalone CLI** | `researchclaw run --topic "..." --auto-approve` (autonomous) or `--mode co-pilot` (collaborative) |
+| **Paper-only** | `researchclaw paper --report analysis_report.md --output artifacts/my-paper` (build a paper from an existing markdown report, stages 16-23 only) |
 | **Python API** | `from researchclaw.pipeline import Runner; Runner(config).run()` |
 | **Claude Code** | Reads `RESEARCHCLAW_CLAUDE.md` — just say *"Run research on [topic]"* |
 | **Copilot CLI** | `researchclaw run --topic "..."` with `llm.acp.agent: "gh"` |
@@ -591,6 +626,7 @@ research:
   domains: ["ml", "nlp"]           # Research domains for literature search
   daily_paper_count: 8             # Target papers per search query
   quality_threshold: 4.0           # Minimum quality score for papers
+  project_mode: ""                 # "docs-first" bypasses all-simulated/no-real-metrics blocks for report-grounded papers
 
 # === Runtime ===
 runtime:
@@ -695,6 +731,8 @@ export:
   target_conference: "neurips_2025"  # neurips_2025 | iclr_2026 | icml_2026
   authors: "Anonymous"
   bib_file: "references"
+  output_format: "docx"              # docx (default, Word via pandoc) | latex (paper.tex + PDF) | both
+  docx_reference: ""                 # Optional pandoc reference .docx for Word styling
 
 # === Prompts ===
 prompts:

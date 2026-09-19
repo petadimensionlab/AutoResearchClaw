@@ -192,6 +192,8 @@ export:
   target_conference: "neurips_2025"   # See Section 8 for all available templates
   authors: "Anonymous"                 # Author line in the paper
   bib_file: "references"              # BibTeX file name (without .bib)
+  output_format: "docx"               # docx (default, Word via pandoc) | latex (paper.tex + PDF) | both
+  docx_reference: ""                  # Optional pandoc reference .docx for Word styling
 ```
 
 ### Everything Else (Optional)
@@ -242,6 +244,7 @@ researchclaw run --config config.yaml --topic "Transformer attention for time se
 | `researchclaw setup` | Interactive first-time setup (installs OpenCode Beast Mode, checks Docker/LaTeX) |
 | `researchclaw init` | Interactive config creation (choose LLM provider, creates `config.arc.yaml`) |
 | `researchclaw run` | Run the full 23-stage pipeline |
+| `researchclaw paper --report <file>` | Build a paper from a markdown analysis report (stages 16-23 only, no search or experiments) |
 | `researchclaw validate` | Check your config file for errors |
 | `researchclaw doctor` | Diagnose environment issues (Python, dependencies, API connectivity) |
 | `researchclaw report --run-dir <path>` | Generate a human-readable summary of a completed run |
@@ -271,6 +274,9 @@ researchclaw run -c config.yaml --resume --auto-approve
 
 # Re-run just the paper writing stages
 researchclaw run -c config.yaml --from-stage PAPER_OUTLINE --auto-approve
+
+# Build a paper from an existing markdown analysis report (no search or experiments)
+researchclaw paper -r analysis_report.md -o artifacts/my-paper --output-format docx
 
 # Check your setup before running
 researchclaw doctor -c config.yaml
@@ -392,7 +398,8 @@ artifacts/rc-20260310-143200-a1b2c3/
 ├── stage-21/archive.md                    # Knowledge retrospective
 ├── stage-22/
 │   ├── paper_final.md                     # Final paper (Markdown)
-│   ├── paper.tex                          # Conference-ready LaTeX
+│   ├── paper.docx                         # Word document (default export via pandoc)
+│   ├── paper.tex                          # Conference-ready LaTeX source (PDF only with latex/both)
 │   ├── references.bib                     # BibTeX references
 │   ├── charts/                            # Result visualizations
 │   └── code/                              # Open-source code package
@@ -409,7 +416,8 @@ artifacts/rc-20260310-143200-a1b2c3/
 
 | File | What You'll Use It For |
 |------|----------------------|
-| `stage-22/paper.tex` | Submit to a conference (compile with `pdflatex` or `tectonic`) |
+| `stage-22/paper.docx` | Word document (default export) for review and editing |
+| `stage-22/paper.tex` | LaTeX source; compile with `pdflatex` or `tectonic` for a PDF |
 | `stage-22/paper_final.md` | Read or further edit the paper |
 | `stage-22/references.bib` | Bibliography for LaTeX compilation |
 | `stage-22/code/` | Share experiment code alongside the paper |
@@ -833,6 +841,7 @@ researchclaw doctor --config config.yaml
 | Pipeline fails mid-run | Transient API error | Run with `--resume` to continue from the last checkpoint |
 | Citations marked HALLUCINATED | LLM invented fake references | This is expected — Stage 23 catches these. Use `references_verified.bib` instead |
 | LaTeX won't compile | Missing style packages | Install the conference style files, or use `tectonic` which auto-downloads them |
+| No `paper.docx` produced | `pandoc` is not installed or not on `PATH` | Install pandoc (`brew install pandoc` / `apt install pandoc`), or set `export.output_format: "latex"`. Docx export degrades gracefully: the run continues with a warning and other artifacts are still produced |
 
 ### Resuming a Failed Run
 

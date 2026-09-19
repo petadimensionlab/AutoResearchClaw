@@ -459,6 +459,66 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+def cmd_paper(args: argparse.Namespace) -> int:
+    """Build a paper from a user-supplied markdown analysis report (stages 16-23)."""
+    resolved = _resolve_config_or_exit(args)
+    if resolved is None:
+        return 1
+
+    # Imported lazily so `import researchclaw.cli` stays light and there is no
+    # circular import back into this module from the paper package.
+    from researchclaw.paper.builder import build_paper_from_report
+
+    report = cast(str, args.report)
+    output = cast(str | None, getattr(args, "output", None))
+    topic = cast(str | None, getattr(args, "topic", None))
+    authors = cast(str | None, getattr(args, "authors", None))
+    output_format = cast(str | None, getattr(args, "output_format", None))
+    charts = cast(str | None, getattr(args, "charts", None))
+    references = cast(str | None, getattr(args, "references", None))
+    run_id = cast(str | None, getattr(args, "run_id", None))
+
+    print(f"Building paper from report: {report}")
+    print(f"Using config: {resolved}")
+
+    try:
+        result = build_paper_from_report(
+            report,
+            output,
+            config_path=str(resolved),
+            topic=topic,
+            authors=authors,
+            output_format=output_format,
+            charts_dir=charts,
+            references_bib=references,
+            run_id=run_id,
+            auto_approve_gates=True,
+        )
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    done = sum(1 for r in result.results if r.status.value == "done")
+    print(f"\nRun directory: {result.run_dir}")
+    print(f"Stages completed: {done}/{len(result.results)}")
+
+    print("Produced:")
+    if result.paper_markdown is not None:
+        print(f"  paper_final.md : {result.paper_markdown}")
+    if result.paper_docx is not None:
+        print(f"  paper.docx     : {result.paper_docx}")
+    if result.paper_tex is not None:
+        print(f"  paper.tex      : {result.paper_tex}")
+    if result.references_bib is not None:
+        print(f"  references.bib : {result.references_bib}")
+
+    if result.ok:
+        print("\nPaper build complete.")
+        return 0
+    print("\nPaper build finished with failures.", file=sys.stderr)
+    return 1
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     from researchclaw.config import validate_config
     import yaml
@@ -1505,6 +1565,41 @@ def build_parser() -> argparse.ArgumentParser:
     _ = guide_p.add_argument("--stage", "-s", type=int, required=True, help="Target stage number")
     _ = guide_p.add_argument("--message", "-m", required=True, help="Guidance text")
 
+    # Build a paper from a markdown analysis report (stages 16-23 only)
+    paper_p = sub.add_parser(
+        "paper",
+        help="Build a paper from a markdown analysis-results report",
+        description=(
+            "Seed a run directory from a user-supplied markdown analysis report "
+            "and run only the paper-construction stages (16-23): outline, draft, "
+            "peer review, revision, quality gate, archive, export, citation verify."
+        ),
+    )
+    _ = paper_p.add_argument(
+        "--report", "-r", required=True,
+        help="Path to the markdown analysis-results report",
+    )
+    _ = paper_p.add_argument("--output", "-o", help="Output run directory")
+    _ = paper_p.add_argument(
+        "--config", "-c", default=None,
+        help="Config file (default: auto-detect config.arc.yaml or config.yaml)",
+    )
+    _ = paper_p.add_argument("--topic", "-t", help="Override research topic")
+    _ = paper_p.add_argument("--authors", default=None, help="Paper author string")
+    _ = paper_p.add_argument(
+        "--output-format",
+        choices=["docx", "latex", "both"],
+        default=None,
+        help="Primary export format (overrides config export.output_format)",
+    )
+    _ = paper_p.add_argument(
+        "--charts", default=None, help="Directory of charts to copy into the run"
+    )
+    _ = paper_p.add_argument(
+        "--references", default=None, help="BibTeX file to seed references.bib"
+    )
+    _ = paper_p.add_argument("--run-id", dest="run_id", default=None, help="Run id")
+
     return parser
 
 
@@ -1558,6 +1653,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_hitl_reject(args)
     elif command == "guide":
         return cmd_hitl_guide(args)
+    elif command == "paper":
+        return cmd_paper(args)
     else:
         parser.print_help()
         return 0

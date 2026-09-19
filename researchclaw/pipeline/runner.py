@@ -1040,6 +1040,12 @@ def _package_deliverables(
             shutil.copy2(tex_src, dest / "paper.tex")
             packaged.append("paper.tex")
 
+    # --- 2b. Word document (.docx) — primary deliverable in docx mode ---
+    docx_src = run_dir / "stage-22" / "paper.docx"
+    if docx_src.exists() and docx_src.stat().st_size > 0:
+        shutil.copy2(docx_src, dest / "paper.docx")
+        packaged.append("paper.docx")
+
     # --- 3. References (BibTeX) ---
     # Prefer verified bib (stage 23) over base bib (stage 22)
     bib_src = None
@@ -1215,8 +1221,12 @@ def _package_deliverables(
         except Exception:  # noqa: BLE001
             logger.debug("Cite key verification/repair skipped")
 
-    # --- 9. IMP-18: Compile LaTeX to verify paper.tex ---
-    if tex_path.exists() and bib_path.exists():
+    # --- 9. IMP-18: Compile LaTeX to verify paper.tex (LaTeX/both only) ---
+    if (
+        getattr(config.export, "output_format", "docx") != "docx"
+        and tex_path.exists()
+        and bib_path.exists()
+    ):
         try:
             from researchclaw.templates.compiler import compile_latex
 
@@ -1257,6 +1267,7 @@ def _package_deliverables(
         "notes": {
             "paper_final.md": "Final paper in Markdown format",
             "paper.tex": f"Conference-ready LaTeX ({effective_conf})",
+            "paper.docx": "Word document (.docx) export",
             "references.bib": "BibTeX bibliography (verified citations only)",
             "code/": "Experiment source code with requirements.txt",
             "verification_report.json": "Citation integrity & relevance verification",
