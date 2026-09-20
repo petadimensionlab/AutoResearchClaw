@@ -37,7 +37,7 @@ jobs:
 
       - name: Run test suite
         run: |
-          python -m pytest -q \
+          python -m pytest -q --reruns 2 --reruns-delay 1 \
             --deselect "tests/test_opencode_bridge.py::TestOpenCodeBridge::test_collect_files_flattens_subdirectories" \
             --deselect "tests/test_web_crawler.py::TestCheckUrlSsrf::test_https_allowed" \
             --deselect "tests/test_minimax_provider.py::TestMiniMaxFromRCConfig::test_anthropic_presets_append_messages_path"

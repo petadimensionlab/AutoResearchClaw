@@ -365,5 +365,9 @@ git revert -m 1 <merge_commit>
 Step 6 と同じ既知の既存失敗テストは `--deselect` で除外してあり、CI はグリーンな基準を保ちます。
 **それ以外の新しい失敗は CI を赤くする**ため、回帰を検知できます。
 
+さらに、負荷時にタイミング依存で稀に失敗する `tests/test_hitl_advanced.py` の遅延ポーリング
+テストを安定させるため、CI は `pytest-rerunfailures` による `--reruns 2 --reruns-delay 1` を
+併用します（決定論的な失敗は再試行後も失敗するため、回帰検知は損なわれません）。
+
 `scripts/sync_upstream.sh` の push 前テストはこの CI と同じ除外設定を使っているため、同期後に
 ローカルで通過した内容がそのまま CI でも検証されます。
