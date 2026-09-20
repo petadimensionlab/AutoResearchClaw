@@ -100,6 +100,17 @@ researchclaw paper --report <analysis_report.md> [--output <run_dir>] [--config 
     [--charts <dir>] [--references <references.bib>] [--run-id <id>]
 ```
 
+#### ラッパースクリプト（推奨）
+
+レポートのパスだけを指定すると、Stage 16-23 を逐次実行して `paper.docx` を出力します。
+
+```bash
+./scripts/write_paper.sh analysis_report.md
+```
+
+`--output-format`（既定 `docx`）や `--authors` などのオプションは `researchclaw paper` にそのまま
+転送されます。`--dry-run` を付けると、実行せずに実際のコマンドを表示します。
+
 #### Python API
 
 ```python

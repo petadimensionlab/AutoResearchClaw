@@ -120,6 +120,12 @@ researchclaw paper --report analysis_report.md --output artifacts/my-paper \
     --topic "My analysis" --authors "A. Author" --output-format docx
 ```
 
+Simplest wrapper — give it only the report path; it runs stages 16-23 sequentially and emits `paper.docx`:
+
+```bash
+./scripts/write_paper.sh analysis_report.md
+```
+
 Or from Python:
 
 ```python
