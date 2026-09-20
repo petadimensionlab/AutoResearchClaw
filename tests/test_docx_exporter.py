@@ -230,3 +230,24 @@ def test_title_injected_when_missing(tmp_path: Path) -> None:
     # Then the title appears in the document
     assert result.success is True
     assert "My Paper" in _document_text(out_path)
+
+
+@PANDOC
+def test_relative_out_path_does_not_nest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Given a relative output path, as the pipeline passes to the exporter
+    monkeypatch.chdir(tmp_path)
+    out_rel = Path("stage-22/paper.docx")
+    out_rel.parent.mkdir(parents=True, exist_ok=True)
+
+    # When converting
+    result = markdown_to_docx("# Title\n\nBody text.\n", out_rel)
+
+    # Then the document lands at the relative path and pandoc does not nest it
+    # under a second copy of the path inside its own working directory
+    assert result.success is True
+    assert (tmp_path / "stage-22" / "paper.docx").is_file()
+    assert not (tmp_path / "stage-22" / "stage-22").exists()
+    assert not (tmp_path / "stage-22" / "artifacts").exists()
+

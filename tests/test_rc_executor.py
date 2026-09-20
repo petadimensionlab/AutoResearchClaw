@@ -1086,7 +1086,7 @@ class TestExportPublishCodePackage:
         code_text = (stage_dir / "code" / "experiment.py").read_text(encoding="utf-8")
         assert "val_loss: 0.1" in code_text
 
-    def test_export_no_experiment_skips_code_dir(
+    def test_export_no_experiment_creates_code_placeholder(
         self,
         tmp_path: Path,
         run_dir: Path,
@@ -1107,8 +1107,8 @@ class TestExportPublishCodePackage:
             llm=None,
         )
 
-        assert not (stage_dir / "code").exists()
-        assert "code/" not in result.artifacts
+        assert (stage_dir / "code" / "README.md").exists()
+        assert "code/" in result.artifacts
 
     def test_export_detects_multiple_dependencies(
         self,

@@ -305,3 +305,34 @@ export:
 - docx 生成には `pandoc` が必要です。無い場合は警告のみで継続します。
 - 論文専用モードは LLM 設定（`llm.*`）が必要です。
 - レポート内の数値は接地値として登録されます（サニタイズで消えません）。
+
+---
+
+## 8. 修正履歴
+
+### 2026-09-20: 論文専用モードで Stage 22/23 が失敗する問題を修正
+
+事象: `researchclaw paper` 実行時、Stage 22 が `Missing output directory: code/` で FAILED となり、
+`paper.docx` も生成されなかった（Stage 23 は未実行）。
+
+原因は 2 点:
+
+1. **docx 出力が相対パスでネストしていた** (`researchclaw/templates/docx_exporter.py`)
+
+   pandoc に相対の `-o` を渡しつつ `cwd=out_path.parent`（相対）を設定していたため、pandoc が
+   出力を `<stage>/artifacts/<run>/<stage>/paper.docx` に書き、`out_path.exists()` が偽になって
+   docx 出力が静かにスキップされていた。
+
+   対策: `markdown_to_docx` で `out_path` / `bib_path` / `reference_doc` を絶対パスに解決する。
+
+2. **Stage 22 の出力契約 `code/` が満たされない**
+
+   `CONTRACTS[EXPORT_PUBLISH].output_files` は `("paper_final.md", "code/")` を要求するが、
+   実験コードを持たない論文専用モードでは `code/` が作られず、契約検証で失敗していた。
+
+   対策: 実験コードが無い場合、Stage 22 が `code/README.md`（プレースホルダ）を書き、
+   契約を満たすようにした。
+
+検証: 実際に失敗した run に対して Stage 22/23 を `llm=None` で再実行し、両ステージが `done`、
+`code/` と `paper.docx` が生成され、`deliverables/` に `paper.docx` / `code/` が揃うことを確認。
+回帰テストを追加（相対パスのネスト防止、`code/` プレースホルダ、Stage 16-23 の入力契約の充足）。

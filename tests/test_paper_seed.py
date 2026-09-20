@@ -153,3 +153,33 @@ def test_charts_dir_copied(tmp_path: Path) -> None:
     )
     assert (run_dir / "stage-14" / "charts" / "fig1.png").is_file()
     assert "stage-14/charts/fig1.png" in result.files
+
+
+def test_seed_satisfies_every_paper_stage_input(tmp_path: Path) -> None:
+    """Inputs a stage 16-23 needs from *before* the window must all be seeded."""
+    from researchclaw.pipeline._helpers import _read_prior_artifact
+    from researchclaw.pipeline.contracts import CONTRACTS
+    from researchclaw.pipeline.stages import Stage
+
+    _, run_dir = _seed(tmp_path)
+    produced: set[str] = set()
+    for stage in (s for s in Stage if 16 <= int(s) <= 23):
+        for name in CONTRACTS[stage].input_files:
+            if name in produced:
+                continue
+            assert _read_prior_artifact(run_dir, name) is not None, (
+                f"{stage.name} requires '{name}' but the seeder did not create it"
+            )
+        produced.update(CONTRACTS[stage].output_files)
+
+
+def test_seed_provides_analysis_and_decision_for_stage16(tmp_path: Path) -> None:
+    from researchclaw.pipeline._helpers import (
+        _read_best_analysis,
+        _read_prior_artifact,
+    )
+
+    _, run_dir = _seed(tmp_path)
+    assert _read_best_analysis(run_dir)
+    assert _read_prior_artifact(run_dir, "decision.md")
+    assert _read_prior_artifact(run_dir, "experiment_summary.json")

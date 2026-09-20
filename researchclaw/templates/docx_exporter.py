@@ -74,7 +74,17 @@ def markdown_to_docx(
     author-year text; otherwise citations become plain ``[key; key]`` markers.
     *reference_doc* applies a Word style template.  All failures (missing
     pandoc, non-zero exit, timeout) are returned, never raised.
+
+    Paths are resolved to absolute before pandoc runs so that passing a
+    relative ``out_path`` (as the pipeline does) cannot make pandoc resolve
+    ``-o`` against the working directory it is given.
     """
+    out_path = Path(out_path).expanduser().resolve()
+    bib_source = Path(bib_path).expanduser().resolve() if bib_path is not None else None
+    reference_doc = (
+        Path(reference_doc).expanduser().resolve() if reference_doc is not None else None
+    )
+
     if not pandoc_available():
         logger.warning("DOCX export skipped — pandoc not installed")
         return DocxResult(
@@ -83,7 +93,6 @@ def markdown_to_docx(
             False,
         )
 
-    bib_source = Path(bib_path) if bib_path is not None else None
     has_bib = bib_source is not None and bib_source.exists()
     body, warnings = _preprocess_markdown(markdown, has_bib=has_bib)
     body = _prepend_front_matter(body, title=title, authors=authors)
