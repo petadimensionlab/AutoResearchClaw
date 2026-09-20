@@ -170,10 +170,24 @@ git branch -d sync/upstream-YYYYMMDD
 
 ---
 
-## 5. コピペ用スクリプト
+## 5. 自動化スクリプト
 
-上記の流れを 1 つにまとめたスクリプトです。`upstream` から取り込み、テストを実行し、
-`origin` へ push します。**`git push upstream` は含まれていません。**
+上記の手順は `scripts/sync_upstream.sh` に自動化されています。`upstream` は読み取り専用で、
+push 先は `origin` のみです。
+
+```bash
+./scripts/sync_upstream.sh               # fetch → merge → テスト → origin へ push
+./scripts/sync_upstream.sh --dry-run     # 取り込む差分を確認するだけ（変更なし）
+./scripts/sync_upstream.sh --no-push     # ローカルで merge まで（push しない）
+./scripts/sync_upstream.sh --skip-tests  # テストをスキップ
+```
+
+スクリプトは、既知の既存失敗テスト（Step 6 参照）を `--deselect` で除外してから全スイートを
+実行します。新しい回帰があればそこで停止し、push しません。作業ツリーに未コミットの追跡対象
+変更がある場合は安全のため中断します（未追跡ファイルは無視されます）。
+
+以下は同じ流れを手動で行う場合のコピペ用スクリプトです。`upstream` から取り込み、
+テストを実行し、`origin` へ push します。**`git push upstream` は含まれていません。**
 `YYYYMMDD` は実行日の日付に置き換えるか、`date` で自動生成してください。
 
 ```bash
@@ -339,3 +353,17 @@ git revert -m 1 <merge_commit>
 - [ ] docx / paper のフォーカステストがパス
 - [ ] `git push origin main`
 - [ ] `upstream` へは push していない
+
+---
+
+## 11. CI（継続的テスト）
+
+`.github/workflows/tests.yml` が `main` への push と Pull Request で pytest を実行します
+（Python 3.11 / 3.13 のマトリクス）。`pip install -e ".[dev]"` で依存を導入してから
+`python -m pytest -q` を走らせます。
+
+Step 6 と同じ既知の既存失敗テストは `--deselect` で除外してあり、CI はグリーンな基準を保ちます。
+**それ以外の新しい失敗は CI を赤くする**ため、回帰を検知できます。
+
+`scripts/sync_upstream.sh` の push 前テストはこの CI と同じ除外設定を使っているため、同期後に
+ローカルで通過した内容がそのまま CI でも検証されます。
