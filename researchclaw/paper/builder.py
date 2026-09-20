@@ -35,6 +35,69 @@ _SUCCESS_STATUSES: frozenset[StageStatus] = frozenset(
     {StageStatus.DONE, StageStatus.APPROVED}
 )
 
+_GROUNDING_STAGES: tuple[str, ...] = ("paper_draft", "paper_revision")
+_GROUNDING_RULE_FILE = (
+    Path(__file__).resolve().parents[2] / "prompts" / "report_grounded_numbers.md"
+)
+_GROUNDING_RULE_INLINE = (
+    "NUMERICAL INTEGRITY: use ONLY numbers present verbatim in the supplied analysis "
+    "report / experiment metrics; never invent or derive percentages, effect sizes, "
+    "p-values, CIs or per-condition stats."
+)
+
+
+def _grounding_rule_text() -> str:
+    if _GROUNDING_RULE_FILE.is_file():
+        try:
+            return _GROUNDING_RULE_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            logger.warning("Could not read grounding rule: %s", _GROUNDING_RULE_FILE)
+    return _GROUNDING_RULE_INLINE
+
+
+def _resolve_extra_text(value: str) -> str:
+    candidate = Path(value).expanduser()
+    if candidate.exists() and candidate.is_file():
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+    return value.strip()
+
+
+def _with_report_grounding(config: RCConfig, run_dir: Path) -> RCConfig:
+    """Force report-grounded number guidance on the paper-writing stages.
+
+    Existing ``extra_prompts`` for those stages are preserved and concatenated
+    with the grounding rule; the merged text is written into the run directory
+    and referenced as a file so ``PromptManager`` never sees an over-long inline
+    string.
+    """
+    rule = _grounding_rule_text()
+    if not rule:
+        return config
+    existing = tuple(config.prompts.extra_prompts)
+    kept = [(stage, value) for stage, value in existing if stage not in _GROUNDING_STAGES]
+    prior_parts: list[str] = []
+    for stage, value in existing:
+        if stage in _GROUNDING_STAGES:
+            text = _resolve_extra_text(value)
+            if text:
+                prior_parts.append(text)
+    prior = "\n\n".join(prior_parts)
+    combined = f"{prior}\n\n{rule}" if prior else rule
+
+    target = run_dir / "prompts" / "report_grounded_extra.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(combined, encoding="utf-8")
+
+    merged = kept + [(stage, str(target)) for stage in _GROUNDING_STAGES]
+    prompts = dataclasses.replace(config.prompts, extra_prompts=tuple(merged))
+    logger.info(
+        "Injected report-grounding prompt for stages: %s", ", ".join(_GROUNDING_STAGES)
+    )
+    return dataclasses.replace(config, prompts=prompts)
+
 
 @dataclass(frozen=True)
 class PaperBuildResult:
@@ -177,6 +240,7 @@ def build_paper_from_report(
         references_bib=Path(references_bib) if references_bib is not None else None,
         charts_dir=Path(charts_dir) if charts_dir is not None else None,
     )
+    cfg = _with_report_grounding(cfg, run_dir)
 
     logger.info(
         "Building paper from report %s → run_dir=%s (run_id=%s)",

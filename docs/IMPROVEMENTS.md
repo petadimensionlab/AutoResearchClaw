@@ -336,3 +336,18 @@ export:
 検証: 実際に失敗した run に対して Stage 22/23 を `llm=None` で再実行し、両ステージが `done`、
 `code/` と `paper.docx` が生成され、`deliverables/` に `paper.docx` / `code/` が揃うことを確認。
 回帰テストを追加（相対パスのネスト防止、`code/` プレースホルダ、Stage 16-23 の入力契約の充足）。
+
+### 2026-09-20: レポート内の数値のみを使用させるプロンプト上書きを追加
+
+アンチファブリケーション機構は創作数値を `---` に置換しますが、Stage 17/19 の LLM が
+レポートに無い数値を書くと最終 docx の数値が欠落します。これを抑えるため、レポート専用の
+指示 `prompts/report_grounded_numbers.md` を追加し、論文専用モード（`researchclaw paper`）では
+`paper_draft` と `paper_revision` に**自動注入**するようにしました（`prompts.extra_prompts` 経由）。
+
+- 既存の `extra_prompts[paper_draft]`（例: `prompts/paper_draft_rules.md`）は保持し、連結した
+  うえで run ディレクトリ内の `prompts/report_grounded_extra.md` を参照します。
+- 全パイプライン（`researchclaw run`）でも適用したい場合は、config の
+  `prompts.extra_prompts` に `paper_revision: ./prompts/report_grounded_numbers.md` を追加します
+  （`config.researchclaw.example.yaml` に例を追加済み）。
+- 指示の内容: 数値はレポート／実験メトリクスに**逐語で存在する値のみ**を使用し、百分率・効果量・
+  p 値・信頼区間・条件別統計を創作・導出しない。無い値は `not reported` とする。

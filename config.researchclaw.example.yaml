@@ -250,7 +250,14 @@ prompts:
   #   extra_prompts:
   #     code_generation: "Favour MadGraph5 + Pythia8 + Delphes toolchains."
   #     paper_outline: ./prompts/jhep_outline_rules.md
-  extra_prompts: {}
+  #
+  # `researchclaw paper` (report-only mode) automatically injects
+  # ./prompts/report_grounded_numbers.md into paper_draft and paper_revision so
+  # the draft only uses numbers from the supplied report. To enforce the same
+  # rule in a full `researchclaw run`, enable the two entries below.
+  extra_prompts:
+    paper_draft: ./prompts/paper_draft_rules.md
+    paper_revision: ./prompts/report_grounded_numbers.md
 
 
 # === MetaClaw Integration ===

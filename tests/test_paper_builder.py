@@ -176,3 +176,49 @@ def test_missing_config_raises_file_not_found(
     report_path = _write_report(tmp_path)
     with pytest.raises(FileNotFoundError):
         build_paper_from_report(report_path, tmp_path / "run5")
+
+
+def test_report_grounding_prompt_injected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from researchclaw.prompts.manager import PromptManager
+
+    fake = _RecordingPipeline()
+    monkeypatch.setattr(builder_module, "execute_pipeline", fake)
+    config_path = _write_config(tmp_path)
+    report_path = _write_report(tmp_path)
+
+    build_paper_from_report(report_path, tmp_path / "run6", config_path=config_path)
+
+    assert fake.kwargs is not None
+    extras = dict(fake.kwargs["config"].prompts.extra_prompts)
+    assert "paper_draft" in extras
+    assert "paper_revision" in extras
+    grounded = Path(extras["paper_draft"])
+    assert grounded.is_file()
+
+    manager = PromptManager(extra_prompts=extras)
+    loaded = manager.extra_prompts()
+    assert "NUMERICAL INTEGRITY" in loaded["paper_draft"]
+    assert "NUMERICAL INTEGRITY" in loaded["paper_revision"]
+
+
+def test_report_grounding_preserves_existing_paper_draft_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _RecordingPipeline()
+    monkeypatch.setattr(builder_module, "execute_pipeline", fake)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        _CONFIG_YAML + "prompts:\n  extra_prompts:\n    paper_draft: CUSTOM-PAPER-DRAFT-RULE\n",
+        encoding="utf-8",
+    )
+    report_path = _write_report(tmp_path)
+
+    build_paper_from_report(report_path, tmp_path / "run7", config_path=config_path)
+
+    assert fake.kwargs is not None
+    extras = dict(fake.kwargs["config"].prompts.extra_prompts)
+    text = Path(extras["paper_draft"]).read_text(encoding="utf-8")
+    assert "CUSTOM-PAPER-DRAFT-RULE" in text
+    assert "NUMERICAL INTEGRITY" in text
