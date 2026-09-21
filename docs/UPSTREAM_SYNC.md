@@ -371,3 +371,35 @@ Step 6 と同じ既知の既存失敗テストは `--deselect` で除外して�
 
 `scripts/sync_upstream.sh` の push 前テストはこの CI と同じ除外設定を使っているため、同期後に
 ローカルで通過した内容がそのまま CI でも検証されます。
+
+---
+
+## 12. push の独立性（このリポジトリ専用の設定）
+
+本リポジトリは原典から独立して push / 管理できるよう、次のように設定しています。
+
+| 設定 | 値 | 目的 |
+|---|---|---|
+| `remote.origin.url` | `https://github.com/petadimensionlab/AutoResearchClaw.git` | push 先は自分のリポジトリのみ |
+| `remote.upstream.pushurl` | `no_push` | 原典への**誤 push を防止**（fetch 専用） |
+| `remote.pushDefault` | `origin` | `git push`（引数なし）は必ず `origin` へ |
+| `credential.https://github.com.helper`（ローカル） | petadimensionlab のトークンを返す | `gh auth` のアクティブアカウントに依存せず push 可能 |
+
+これにより、`gh auth` のアクティブアカウントが別アカウント（例: `m-hoikoro`）でも、
+本リポジトリへの `git push` は `petadimensionlab` の資格情報で実行されます。
+
+### 新しいクローンで同じ設定を再現する
+
+```bash
+git remote add upstream https://github.com/aiming-lab/AutoResearchClaw.git
+git remote set-url --push upstream no_push
+git config remote.pushDefault origin
+git config --local credential."https://github.com".helper ""
+git config --local --add credential."https://github.com".helper \
+  '!f() { if [ "$1" = get ]; then echo username=petadimensionlab; echo "password=$(gh auth token --user petadimensionlab)"; fi; }; f'
+```
+
+- 前提: `gh auth login` で `petadimensionlab` にログイン済みであること（`gh auth status` で確認）。
+- 原典は**読み取り専用**です。`git push upstream` は失敗します（意図どおり）。
+- ローカルの `.git/config` に保存される設定のため、リポジトリにはコミットされません。
+  別マシン・別クローンでは上記コマンドで再設定してください。
