@@ -15,6 +15,7 @@ from researchclaw.adapters import AdapterBundle
 from researchclaw.config import RCConfig
 from researchclaw.evolution import EvolutionStore, extract_lessons
 from researchclaw.knowledge.base import write_stage_to_kb
+from researchclaw.llm import create_llm_client
 from researchclaw.pipeline.executor import StageResult, execute_stage
 from researchclaw.pipeline.stages import (
     DECISION_ROLLBACK,
@@ -341,6 +342,85 @@ def _run_experiment_diagnosis(run_dir: Path, config: RCConfig, run_id: str) -> N
 
     except Exception as exc:
         logger.warning("Experiment diagnosis failed: %s", exc)
+
+
+def _is_zero_metric_failure(error: str | None) -> bool:
+    text = (error or "").lower()
+    return "zero" in text and "metric" in text
+
+
+def _stage12_failure_evidence(run_dir: Path, limit: int = 6000) -> str:
+    parts: list[str] = []
+    for path in sorted((run_dir / "stage-12" / "runs").glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        for key in ("stderr", "stdout"):
+            val = str(data.get(key) or "").strip()
+            if val:
+                parts.append(f"[{key}]\n{val}")
+        if parts:
+            break
+    decision = run_dir / "stage-12" / "decision.json"
+    if decision.is_file():
+        try:
+            err = json.loads(decision.read_text(encoding="utf-8")).get("error")
+        except (json.JSONDecodeError, OSError):
+            err = None
+        if err:
+            parts.append(f"[pipeline error]\n{err}")
+    return "\n\n".join(parts)[:limit] or "(no failure evidence captured)"
+
+
+def _repair_experiment_code(run_dir: Path, config: RCConfig, run_id: str) -> int:
+    """Fix a degenerate experiment's code with the LLM.
+
+    Unlike ``run_repair_loop`` this needs no ``experiment_summary.json`` (which
+    only exists after Stage 14), so it can repair a Stage-12 failure directly.
+    """
+    from researchclaw.pipeline.executor import (
+        _CODE_REVISE_SYSTEM,
+        _read_code_bundle,
+        _write_code_blocks,
+    )
+
+    stage10 = run_dir / "stage-10"
+    bundle, _rels = _read_code_bundle(stage10)
+    if not bundle:
+        logger.warning("[%s] code repair: no experiment code found", run_id)
+        return 0
+    evidence = _stage12_failure_evidence(run_dir)
+    try:
+        llm = create_llm_client(config)
+    except Exception:  # noqa: BLE001
+        logger.warning("[%s] code repair: LLM client unavailable", run_id)
+        return 0
+    if llm is None or not hasattr(llm, "chat"):
+        return 0
+
+    prompt = (
+        "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
+        "----- FAILURE EVIDENCE (the project crashed; see traceback) -----\n"
+        + evidence + "\n----- END -----\n\n"
+        "`python main.py` must run end-to-end and emit metrics (results.json or printed "
+        "metric lines). It currently crashes immediately and writes no metrics. Fix the "
+        "root cause(s) shown in the traceback. Output ONLY fenced code blocks with "
+        "'filename:' markers for every file you change."
+    )
+    try:
+        out = llm.chat(
+            [{"role": "user", "content": prompt}],
+            system=_CODE_REVISE_SYSTEM,
+            max_tokens=32768,
+            temperature=0.2,
+        ).content
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[%s] code repair LLM call failed: %s", run_id, exc)
+        return 0
+    written = _write_code_blocks(stage10, out) if out.strip() else 0
+    logger.info("[%s] code repair wrote %d file(s)", run_id, written)
+    return written
 
 
 def _run_experiment_repair(run_dir: Path, config: RCConfig, run_id: str) -> None:
@@ -819,10 +899,47 @@ def execute_pipeline(
             break
 
         if result.status == StageStatus.FAILED:
-            if skip_noncritical and stage in NONCRITICAL_STAGES:
-                logger.warning("Noncritical stage %s failed - skipping", stage.name)
-            else:
-                break
+            # A2: a degenerate EXPERIMENT_RUN (fast "completion" with zero metrics)
+            # is usually broken generated code. Repair the code with the LLM and
+            # retry the stage, instead of stopping before the Stage-14 repair hook.
+            if (
+                stage == Stage.EXPERIMENT_RUN
+                and config.experiment.repair.enabled
+                and config.experiment.mode
+                not in ("collider_agent", "biology_agent", "stat_agent")
+                and _is_zero_metric_failure(result.error)
+            ):
+                logger.warning(
+                    "[%s] Stage 12 produced zero metrics — running repair then retrying",
+                    run_id,
+                )
+                try:
+                    _repair_experiment_code(run_dir, config, run_id)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Experiment code repair for Stage 12 failed")
+                try:
+                    retry_result = execute_stage(
+                        stage,
+                        run_dir=run_dir,
+                        run_id=run_id,
+                        config=config,
+                        adapters=adapters,
+                        auto_approve_gates=auto_approve_gates,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Retrying Stage 12 after repair failed")
+                else:
+                    results[-1] = retry_result
+                    result = retry_result
+                    if retry_result.status == StageStatus.DONE:
+                        logger.info("[%s] Stage 12 recovered after repair", run_id)
+                        print(f"{prefix} {stage.name} — recovered after repair")
+
+            if result.status == StageStatus.FAILED:
+                if skip_noncritical and stage in NONCRITICAL_STAGES:
+                    logger.warning("Noncritical stage %s failed - skipping", stage.name)
+                else:
+                    break
 
         if result.status == StageStatus.PAUSED:
             logger.warning(

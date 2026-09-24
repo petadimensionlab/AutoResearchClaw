@@ -330,6 +330,53 @@ def _collect_raw_experiment_metrics(run_dir: Path) -> tuple[str, bool]:
     ), has_parsed_metrics
 
 
+def _dedupe_sections(draft: str) -> tuple[str, list[str]]:
+    """Collapse duplicate ``##`` sections produced by the 3-call section writer.
+
+    Later section-writer calls receive the prior text and are told to
+    "continue", so the model sometimes re-emits earlier sections verbatim or
+    with different numbers. Concatenating the three parts then yields a draft
+    with repeated, contradictory sections. This keeps the longest occurrence of
+    each ``##`` heading, preserves first-appearance order, and returns the
+    duplicated heading names.
+    """
+    import re
+
+    matches = list(re.finditer(r"^##\s+(.*)$", draft, re.MULTILINE))
+    if len(matches) < 2:
+        return draft, []
+
+    preamble = draft[: matches[0].start()].rstrip()
+    records: list[tuple[str, str, str]] = []
+    for index, match in enumerate(matches):
+        heading = match.group(1).strip()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(draft)
+        normalized = re.sub(r"[^a-z0-9]+", "", heading.lower())
+        records.append((normalized, heading, draft[match.start():end].rstrip()))
+
+    best: dict[str, str] = {}
+    heading_of: dict[str, str] = {}
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for normalized, heading, block in records:
+        counts[normalized] = counts.get(normalized, 0) + 1
+        if normalized not in best:
+            order.append(normalized)
+            best[normalized] = block
+            heading_of[normalized] = heading
+        elif len(block) > len(best[normalized]):
+            best[normalized] = block
+            heading_of[normalized] = heading
+
+    duplicates = [heading_of[n] for n, count in counts.items() if count > 1]
+    if not duplicates:
+        return draft, []
+
+    body = "\n\n".join(best[n] for n in order)
+    result = f"{preamble}\n\n{body}".strip() if preamble else body
+    return result, duplicates
+
+
 def _write_paper_sections(
     *,
     llm: LLMClient,
@@ -649,6 +696,13 @@ def _write_paper_sections(
 
     # Combine all sections
     draft = "\n\n".join(sections)
+    draft, _dup_headings = _dedupe_sections(draft)
+    if _dup_headings:
+        logger.info(
+            "Stage 17: Removed %d duplicated section(s) from assembly: %s",
+            len(set(_dup_headings)),
+            ", ".join(sorted(set(_dup_headings))),
+        )
 
     # R32: Strip data verification preamble that LLMs sometimes emit before
     # the actual paper.  The preamble typically starts with "## Tested Conditions"

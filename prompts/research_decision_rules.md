@@ -25,3 +25,14 @@ REFINE
 
 ## Justification
 The primary metric is undefined and two conditions produce identical outputs.
+
+DECISION RIGOR (mandatory — an independent review flagged these as failure modes):
+- Do NOT conflate invalid data with a null result. If the evidence is degenerate (n=1, zero variance,
+  aliased variables, missing/undefined metrics), the data are INVALID, not "no effect". Say so explicitly.
+- If the evidence is invalid, prefer REFINE or PIVOT (repair the design and metrics) over PROCEED.
+  Only PROCEED to write-up when the report's purpose is explicitly a methodological failure analysis,
+  and then label the output an invalid/inconclusive pilot rather than substantive findings.
+- Do NOT use causal or mechanistic language ("generosity is infectious", "social mechanisms are more
+  efficient") when the design cannot support it; downgrade to correlational or descriptive language.
+- In `## Justification`, state the concrete decision rule you applied. In `## Evidence`, cite exact
+  metric names and values from the supplied data (or state that no valid metrics exist).

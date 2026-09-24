@@ -48,6 +48,18 @@ llm:
   fallback_models:
     - "gpt-4.1"
     - "gpt-4o-mini"
+  # --- Cross-model review loop (optional; standard in the petadimensionlab setup) ---
+  # The author model writes, an independent reviewer critiques, then the author revises.
+  # A reasoning reviewer (e.g. qwen3.8-flash-next) needs a very large token budget,
+  # otherwise it spends it all on reasoning and returns empty content.
+  # reviewer_provider: "openai-compatible"
+  # reviewer_base_url: "http://HOST:8000/v1"
+  # reviewer_api_key: "dummy"
+  # reviewer_model: "qwen3.8-flash-next"
+  # reviewer_max_tokens: 65536
+  # review_loop_enabled: true
+  # review_loop_stages: [7, 8, 14, 15, 16, 17, 18, 19]
+  # review_loop_reviser: "reviewer"   # "reviewer" (base revises) or "author" (chat revises)
   # --- MiniMax provider example (global OpenAI-compatible endpoint) ---
   # provider: "minimax-global"
   # base_url: "https://api.minimax.io/v1"
@@ -256,8 +268,10 @@ prompts:
   # the draft only uses numbers from the supplied report. To enforce the same
   # rule in a full `researchclaw run`, enable the two entries below.
   extra_prompts:
+    hypothesis_gen: ./prompts/hypothesis_rules.md
+    result_analysis: ./prompts/result_analysis_rules.md
     paper_draft: ./prompts/paper_draft_rules.md
-    paper_revision: ./prompts/report_grounded_numbers.md
+    paper_revision: ./prompts/paper_revision_rules.md
 
 
 # === MetaClaw Integration ===

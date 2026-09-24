@@ -36,6 +36,326 @@ from researchclaw.experiment.validator import (
 
 logger = logging.getLogger(__name__)
 
+_REVIEW_LOOP_ARTIFACTS: dict[int, str] = {
+    3: "search_plan.yaml",
+    7: "synthesis.md",
+    8: "hypotheses.md",
+    9: "exp_plan.yaml",
+    10: "experiment_spec.md",
+    11: "schedule.json",
+    14: "analysis.md",
+    15: "decision.md",
+    16: "outline.md",
+    17: "paper_draft.md",
+    18: "reviews.md",
+    19: "paper_revised.md",
+    20: "quality_report.json",
+    21: "archive.md",
+    22: "paper_final.md",
+}
+
+# Artifacts that must NOT be rewritten after the stage completes: YAML/JSON
+# cannot survive an LLM rewrite, and stage 22's paper_final.md would desync the
+# docx/tex already produced. Those stages get a saved critique only.
+_REVIEW_LOOP_NO_REVISE: frozenset[int] = frozenset({22})
+
+# Stages whose artifact is a code project rather than a single text file. The
+# reviewer sees every file and the reviser returns fixes as fenced file blocks.
+_REVIEW_LOOP_CODE_STAGES: frozenset[int] = frozenset({10})
+_CODE_DIR = "experiment"
+_CODE_FENCE_RE = re.compile(r"```filename:([^\n]+)\n(.*?)(?:```|\Z)", re.DOTALL)
+_CODE_REVISE_SYSTEM = (
+    "You are the author of a Python experiment project that must run end-to-end and write "
+    "its results. Output ONLY fenced code blocks, each starting with a line "
+    "'```filename:<relative path>' and ending with '```'. Output no prose."
+)
+
+_REVIEW_LOOP_STRUCTURE: dict[int, str] = {
+    15: (
+        "The revised artifact MUST begin with the line '## Decision' followed by exactly one "
+        "of PROCEED, PIVOT, or REFINE on the next line.\n\n"
+    ),
+}
+
+_REVIEW_SYSTEM = (
+    "You are a rigorous, skeptical senior researcher reviewing another agent's work. "
+    "Be specific and concise; base every criticism on the provided artifact."
+)
+
+_REVIEW_USER = (
+    "Artifact: {name} (pipeline stage {stage}). Research topic: {topic}\n\n"
+    "----- BEGIN ARTIFACT -----\n{content}\n----- END ARTIFACT -----\n\n"
+    "Critically review it. Return markdown with these sections: ## Strengths, "
+    "## Critical weaknesses, ## Unsupported or unverifiable claims, ## Concrete improvements."
+)
+
+_REVISE_SYSTEM = (
+    "You are the author of the artifact. Revise it to address every valid point in the reviewer's "
+    "critique while preserving what is already correct. Output ONLY the revised artifact."
+)
+
+_REVISE_USER = (
+    "----- CURRENT ARTIFACT -----\n{artifact}\n----- END -----\n\n"
+    "----- REVIEWER CRITIQUE -----\n{review}\n----- END -----\n\n"
+    "{structure_note}"
+    "Revise the artifact so it is methodologically sound, internally consistent, and defensible. "
+    "Define any metric you use; do not invent numbers; remove or qualify unsupported claims. "
+    "Output ONLY the revised artifact, with the same section structure and no meta-commentary."
+)
+
+
+def _review_loop_settings(config: RCConfig) -> tuple[bool, set[int], int]:
+    llm = getattr(config, "llm", None)
+    enabled = bool(getattr(llm, "review_loop_enabled", False)) and bool(
+        getattr(llm, "reviewer_model", "")
+    )
+    stages = {int(s) for s in (getattr(llm, "review_loop_stages", ()) or ())}
+    return enabled, stages, int(getattr(llm, "reviewer_max_tokens", 65536))
+
+
+def _review_result_with(result: StageResult, name: str) -> StageResult:
+    artifacts = list(result.artifacts)
+    if name not in artifacts:
+        artifacts.append(name)
+    return StageResult(
+        stage=result.stage,
+        status=result.status,
+        artifacts=tuple(artifacts),
+        error=result.error,
+        decision=result.decision,
+        evidence_refs=result.evidence_refs,
+    )
+
+
+def _read_code_bundle(stage_dir: Path, limit: int = 120_000) -> tuple[str, list[str]]:
+    code_dir = stage_dir / _CODE_DIR
+    if not code_dir.is_dir():
+        return "", []
+    parts: list[str] = []
+    rels: list[str] = []
+    total = 0
+    for path in sorted(code_dir.rglob("*.py")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(stage_dir).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if total + len(text) > limit:
+            break
+        total += len(text)
+        rels.append(rel)
+        parts.append(f"```filename:{rel}\n{text}\n```")
+    return "\n\n".join(parts), rels
+
+
+def _write_code_blocks(stage_dir: Path, text: str) -> int:
+    import ast
+
+    experiment_root = (stage_dir / _CODE_DIR).resolve()
+    written = 0
+    for match in _CODE_FENCE_RE.finditer(text):
+        rel = match.group(1).strip().lstrip("/")
+        code = match.group(2)
+        if not rel.endswith(".py") or not code.strip():
+            continue
+        target = (stage_dir / rel).resolve()
+        if experiment_root not in target.parents:
+            continue
+        try:
+            ast.parse(code)
+        except SyntaxError:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(code, encoding="utf-8")
+        written += 1
+    return written
+
+
+def _review_and_fix_code(
+    stage: Stage,
+    stage_dir: Path,
+    config: RCConfig,
+    author_llm: Any,
+    result: StageResult,
+) -> StageResult:
+    try:
+        reviewer_llm = LLMClient.reviewer_from_rc_config(config)
+    except Exception:
+        reviewer_llm = None
+    if reviewer_llm is None:
+        return result
+    bundle, _rels = _read_code_bundle(stage_dir)
+    if not bundle:
+        return result
+
+    topic = getattr(getattr(config, "research", None), "topic", "")
+    _, _, reviewer_max = _review_loop_settings(config)
+    try:
+        review = reviewer_llm.chat(
+            [{"role": "user", "content": _REVIEW_USER.format(
+                name="experiment/*.py", stage=int(stage), topic=topic, content=bundle)}],
+            system=_REVIEW_SYSTEM,
+            max_tokens=reviewer_max,
+            temperature=0.2,
+        ).content
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Cross-review stage %s: code reviewer failed: %s", int(stage), exc)
+        return result
+    if not review.strip():
+        logger.warning("Cross-review stage %s: code reviewer empty — skipping", int(stage))
+        return result
+
+    (stage_dir / "cross_review.md").write_text(
+        f"# Cross-model review (stage {int(stage)} code)\n\n{review}", encoding="utf-8"
+    )
+
+    reviser_mode = str(
+        getattr(getattr(config, "llm", None), "review_loop_reviser", "reviewer") or "reviewer"
+    ).lower()
+    revise_user = (
+        "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
+        "----- REVIEWER CRITIQUE -----\n" + review + "\n----- END -----\n\n"
+        "Fix the project so it runs end-to-end and writes the required metrics and results. "
+        "Output ONLY fenced code blocks with 'filename:' markers for every file you change."
+    )
+    clients = ([reviewer_llm] if reviser_mode != "author" else []) + [author_llm]
+
+    written = 0
+    for client in clients:
+        try:
+            out = client.chat(
+                [{"role": "user", "content": revise_user}],
+                system=_CODE_REVISE_SYSTEM,
+                max_tokens=reviewer_max,
+                temperature=0.3,
+            ).content
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cross-review stage %s: code revise failed: %s", int(stage), exc)
+            continue
+        if out.strip():
+            written = _write_code_blocks(stage_dir, out)
+            if written:
+                break
+
+    if not written:
+        logger.warning(
+            "Cross-review stage %s: no valid code files produced — keeping original", int(stage)
+        )
+    else:
+        logger.info("Cross-review stage %s: revised %d code file(s)", int(stage), written)
+    return _review_result_with(result, "cross_review.md")
+
+
+def _apply_cross_model_review(
+    stage: Stage,
+    stage_dir: Path,
+    config: RCConfig,
+    author_llm: Any | None,
+    result: StageResult,
+) -> StageResult:
+    """Run chat -> reviewer -> chat revision on a stage's primary artifact.
+
+    Uses the independent reviewer client (``llm.reviewer_*``). A large reviewer
+    token budget is required because a reasoning reviewer spends most of its
+    budget on reasoning and returns empty content otherwise. When the reviewer
+    returns empty, the artifact is left unchanged.
+    """
+    if author_llm is None or not hasattr(author_llm, "chat"):
+        return result
+    if int(stage) in _REVIEW_LOOP_CODE_STAGES:
+        return _review_and_fix_code(stage, stage_dir, config, author_llm, result)
+    filename = _REVIEW_LOOP_ARTIFACTS.get(int(stage))
+    if not filename:
+        return result
+    artifact_path = stage_dir / filename
+    if not artifact_path.is_file() or artifact_path.stat().st_size == 0:
+        return result
+
+    try:
+        reviewer_llm = LLMClient.reviewer_from_rc_config(config)
+    except Exception:
+        reviewer_llm = None
+    if reviewer_llm is None:
+        return result
+
+    artifact = artifact_path.read_text(encoding="utf-8")
+    topic = getattr(getattr(config, "research", None), "topic", "")
+    _, _, reviewer_max = _review_loop_settings(config)
+
+    try:
+        review = reviewer_llm.chat(
+            [{"role": "user", "content": _REVIEW_USER.format(
+                name=filename, stage=int(stage), topic=topic, content=artifact[:60000])}],
+            system=_REVIEW_SYSTEM,
+            max_tokens=reviewer_max,
+            temperature=0.2,
+        ).content
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Cross-review stage %s: reviewer call failed: %s", int(stage), exc)
+        return result
+    if not review.strip():
+        logger.warning(
+            "Cross-review stage %s: reviewer returned empty (raise reviewer_max_tokens) — skipping",
+            int(stage),
+        )
+        return result
+
+    (stage_dir / "cross_review.md").write_text(
+        f"# Cross-model review (stage {int(stage)})\n\n{review}", encoding="utf-8"
+    )
+
+    # Only rewrite plain-text (.md) artifacts: YAML/JSON cannot survive an LLM
+    # rewrite, and stage 22 must not change after its docx/tex were generated.
+    if not (filename.endswith(".md") and int(stage) not in _REVIEW_LOOP_NO_REVISE):
+        logger.info(
+            "Cross-review stage %s: review-only (artifact %s kept)", int(stage), filename
+        )
+        return _review_result_with(result, "cross_review.md")
+
+    structure_note = _REVIEW_LOOP_STRUCTURE.get(int(stage), "")
+    revise_user = _REVISE_USER.format(
+        artifact=artifact, review=review, structure_note=structure_note
+    )
+    reviser_mode = str(
+        getattr(getattr(config, "llm", None), "review_loop_reviser", "reviewer") or "reviewer"
+    ).lower()
+    author_revise_max = max(8192, min(len(artifact) // 3, 32768))
+
+    def _revise(client: Any, max_tokens: int) -> str:
+        try:
+            return client.chat(
+                [{"role": "user", "content": revise_user}],
+                system=_REVISE_SYSTEM,
+                max_tokens=max_tokens,
+                temperature=0.3,
+            ).content
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cross-review stage %s: revision call failed: %s", int(stage), exc)
+            return ""
+
+    if reviser_mode == "author":
+        revised = _revise(author_llm, author_revise_max)
+    else:
+        revised = _revise(reviewer_llm, reviewer_max)
+        if not revised.strip():
+            logger.warning(
+                "Cross-review stage %s: reviewer revise empty — falling back to author revise",
+                int(stage),
+            )
+            revised = _revise(author_llm, author_revise_max)
+    if not revised.strip():
+        logger.warning("Cross-review stage %s: revision empty — keeping original", int(stage))
+        return _review_result_with(result, "cross_review.md")
+
+    artifact_path.write_text(revised, encoding="utf-8")
+    logger.info(
+        "Cross-review stage %s: revised %d -> %d chars",
+        int(stage), len(artifact), len(revised),
+    )
+    return _review_result_with(result, "cross_review.md")
+
 
 def _select_output_files(contract, config) -> tuple[str, ...]:
     """Pick the contract's collider-mode outputs when running collider_agent."""
@@ -703,6 +1023,15 @@ def execute_stage(
                         evidence_refs=result.evidence_refs,
                     )
                     break
+
+    # --- Cross-model review loop: author -> independent reviewer -> author revision ---
+    if result.status == StageStatus.DONE:
+        _rl_enabled, _rl_stages, _ = _review_loop_settings(config)
+        if _rl_enabled and int(stage) in _rl_stages:
+            try:
+                result = _apply_cross_model_review(stage, stage_dir, config, llm, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("Cross-review stage %s failed", stage.name)
 
     # --- MetaClaw PRM quality gate evaluation ---
     try:

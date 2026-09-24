@@ -228,6 +228,14 @@ class LlmConfig:
     reviewer_base_url: str = ""
     reviewer_api_key: str = ""
     reviewer_api_key_env: str = ""
+    # Cross-model review loop (chat author -> independent reviewer -> chat revision).
+    # Active only when reviewer_model is non-empty; otherwise it is a no-op.
+    review_loop_enabled: bool = True
+    review_loop_stages: tuple[int, ...] = (7, 8, 14, 15, 16, 17, 18, 19)
+    # Who performs the revision after the review: "reviewer" (the reasoning
+    # model revises, i.e. chat -> base review -> base revise) or "author".
+    review_loop_reviser: str = "reviewer"
+    reviewer_max_tokens: int = 65536
     # Multi-model debate engine. Opt-in; the debate panel reuses existing models
     # (primary_model + reviewer_model + fallback_models, deduped), each role
     # bound to a different model. The judge reuses reviewer_model.
@@ -1226,6 +1234,13 @@ def _parse_llm_config(data: dict[str, Any]) -> LlmConfig:
         reviewer_base_url=data.get("reviewer_base_url", ""),
         reviewer_api_key=data.get("reviewer_api_key", ""),
         reviewer_api_key_env=data.get("reviewer_api_key_env", ""),
+        review_loop_enabled=bool(data.get("review_loop_enabled", True)),
+        review_loop_stages=tuple(
+            int(s)
+            for s in (data.get("review_loop_stages") or (7, 8, 14, 15, 16, 17, 18, 19))
+        ),
+        review_loop_reviser=str(data.get("review_loop_reviser", "reviewer") or "reviewer"),
+        reviewer_max_tokens=int(data.get("reviewer_max_tokens", 65536)),
         debate_enabled=bool(data.get("debate_enabled", False)),
         debate_rounds=_safe_int(data.get("debate_rounds"), 1),
         tournament_enabled=bool(data.get("tournament_enabled", False)),
