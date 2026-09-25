@@ -236,7 +236,7 @@ def _repair_condition_differentiation(
     llm: Any,
     python_path: str,
     *,
-    attempts: int = 2,
+    attempts: int = 4,
 ) -> tuple[bool, str]:
     """Make the experiment's conditions distinguishable, then re-run the gate."""
     from researchclaw.pipeline.executor import _read_code_bundle, _write_code_blocks
@@ -248,14 +248,20 @@ def _repair_condition_differentiation(
             return False, note
         prompt = (
             "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
-            "----- PROBLEM -----\n" + note + "\n----- END -----\n\n"
-            f"Attempt {attempt}: the experiment's conditions produce IDENTICAL metrics, which "
-            "means the differentiating parameter is not actually wired into the simulation.\n"
-            "Fix it so each condition differs by a MEANINGFUL margin on at least one metric:\n"
-            "- Derive the RNG seed PER CONDITION (e.g. base_seed + index) — never one shared seed.\n"
-            "- Sweep the key parameter into a regime where outcomes differ (avoid 0/1 saturation).\n"
-            "- Make the manipulated variable enter the update rule, not merely a config field.\n"
-            "- Print one line per condition `<condition>: <metric>=<value>` and write results.json.\n"
+            "----- FAILURE (the project crashes or produces identical conditions) -----\n"
+            + note + "\n----- END -----\n\n"
+            f"Attempt {attempt}: fix the generated experiment.\n"
+            "Checklist (fix ALL that apply):\n"
+            "1. RUNTIME ERROR: if a traceback is shown, fix its root cause. Every module-level name "
+            "MUST be defined before use; move constants/globals to the TOP of the file before any "
+            "function uses them. Good: define NUM_SEEDS at the top of main.py. Bad: use NUM_SEEDS "
+            "before it is assigned.\n"
+            "2. Make each condition differ by a MEANINGFUL margin on at least one metric:\n"
+            "   - Derive the RNG seed PER CONDITION (base_seed + index) — never one shared seed.\n"
+            "   - Sweep the key parameter into a regime where outcomes differ (avoid 0/1 saturation).\n"
+            "   - Make the manipulated variable enter the update rule, not merely a config field.\n"
+            "3. Print one line per condition `<condition>: <metric>=<value>` and write results.json.\n"
+            "Mentally execute `python main.py` from the top of the file to the end before answering. "
             "Output ONLY fenced code blocks with 'filename:' markers for every file you change."
         )
         try:
@@ -269,9 +275,15 @@ def _repair_condition_differentiation(
             return False, note
         if not out.strip():
             return False, note
-        if not _write_code_blocks(stage_dir, out):
+        written = _write_code_blocks(stage_dir, out)
+        if not written:
+            logger.warning("Stage 10 repair: attempt %d produced no parsable code", attempt)
             return False, note
         ok, new_note = _check_condition_differentiation(experiment_dir, python_path)
+        logger.info(
+            "Stage 10 repair: attempt %d wrote %d file(s), gate ok=%s",
+            attempt, written, ok,
+        )
         if ok:
             return True, new_note
         note = new_note
