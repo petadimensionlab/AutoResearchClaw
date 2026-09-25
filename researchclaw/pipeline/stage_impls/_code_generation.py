@@ -404,6 +404,51 @@ def _check_condition_differentiation(
     return True, ""
 
 
+def _ensure_metric_definition(stage_dir: Path, llm: Any, *, attempts: int = 2) -> bool:
+    """Ensure the experiment emits a ``metric_definition:`` line for its primary metric."""
+    from researchclaw.pipeline.executor import _read_code_bundle, _write_code_blocks
+
+    experiment_dir = stage_dir / "experiment"
+
+    def _present() -> bool:
+        for path in experiment_dir.rglob("*.py"):
+            try:
+                if "metric_definition" in path.read_text(encoding="utf-8"):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    if _present():
+        return True
+    for _ in range(attempts):
+        bundle, _rels = _read_code_bundle(stage_dir)
+        if not bundle or llm is None or not hasattr(llm, "chat"):
+            return False
+        prompt = (
+            "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
+            "Requirement: `main.py` MUST print, on its own line, the primary metric's definition:\n"
+            "  metric_definition: <metric_name> | direction=<minimize|maximize> | units=<units> | "
+            "formula=<formula>\n"
+            "Add exactly this line (values filled in for the primary metric). Change nothing else. "
+            "Output ONLY fenced code blocks with 'filename:' markers for every file you change."
+        )
+        try:
+            out = llm.chat(
+                [{"role": "user", "content": prompt}],
+                system=_DIFF_REPAIR_SYSTEM,
+                max_tokens=16384,
+                temperature=0.2,
+            ).content
+        except Exception:  # noqa: BLE001
+            return False
+        if out.strip():
+            _write_code_blocks(stage_dir, out)
+        if _present():
+            return True
+    return False
+
+
 def _codegen_model_override(config: RCConfig, llm: Any) -> Any:
     """Return a client using the configured code-generation model, else ``llm``.
 
@@ -1764,6 +1809,9 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
             evidence_refs=tuple(f"stage-10/{a}" for a in artifacts),
             error=f"Conditions are indistinguishable: {_diff_note}",
         )
+
+    if llm is not None and not _ensure_metric_definition(stage_dir, llm):
+        logger.warning("Stage 10: primary metric definition line missing after repair")
 
     return StageResult(
         stage=Stage.CODE_GENERATION,
