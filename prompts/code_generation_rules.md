@@ -67,3 +67,13 @@ CONDITION DIFFERENTIATION (mandatory — identical conditions are rejected):
   `max(values) - min(values) > 0.05`; if not, print `ABLATION FAILURE: metrics saturated` and adjust the
   parameters before finishing.
 - The differentiating parameter MUST enter the update rule, not merely be stored in a config dict.
+
+EXECUTION CONTRACT (mandatory — the sandbox copies these files FLAT and runs `python main.py`):
+- All project files are copied flat into a single working directory and executed as
+  `python main.py` from that directory. There is NO package.
+- Use FLAT imports only: `from config import Config`, `import methods`, `from data import ...`.
+  NEVER use package-style imports such as `from experiment.config import ...` — they raise
+  `ModuleNotFoundError` and fail the run.
+- `main.py` must run to completion with no manual setup and emit metrics: write `results.json`
+  and/or print one `metric: value` line per condition. A run that finishes in under a second
+  with no metrics is treated as a crash and fails the pipeline.

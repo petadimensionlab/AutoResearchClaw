@@ -67,7 +67,12 @@ _CODE_FENCE_RE = re.compile(r"```filename:([^\n]+)\n(.*?)(?:```|\Z)", re.DOTALL)
 _CODE_REVISE_SYSTEM = (
     "You are the author of a Python experiment project that must run end-to-end and write "
     "its results. Output ONLY fenced code blocks, each starting with a line "
-    "'```filename:<relative path>' and ending with '```'. Output no prose."
+    "'```filename:<relative path>' and ending with '```'. Output no prose.\n"
+    "EXECUTION CONTRACT: the project files are copied FLAT into a working directory and run "
+    "as `python main.py` from that directory. Use flat imports (e.g. `from config import "
+    "Config`, `import methods`), never package-style imports like `from experiment.config "
+    "import ...`. `main.py` must run to completion and emit metrics (write results.json and/or "
+    "print one `metric: value` line per condition)."
 )
 
 _REVIEW_LOOP_STRUCTURE: dict[int, str] = {
