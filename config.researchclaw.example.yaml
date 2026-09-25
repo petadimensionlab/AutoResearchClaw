@@ -57,6 +57,7 @@ llm:
   # reviewer_api_key: "dummy"
   # reviewer_model: "qwen3.8-flash-next"
   # reviewer_max_tokens: 65536
+  # reviewer_reasoning_effort: "low"
   # review_loop_enabled: true
   # review_loop_stages: [7, 8, 14, 15, 16, 17, 18, 19]
   # review_loop_reviser: "reviewer"   # "reviewer" (base revises) or "author" (chat revises)

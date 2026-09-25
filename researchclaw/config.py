@@ -236,6 +236,9 @@ class LlmConfig:
     # model revises, i.e. chat -> base review -> base revise) or "author".
     review_loop_reviser: str = "reviewer"
     reviewer_max_tokens: int = 65536
+    # Reasoning-effort hints for reasoning models (empty = omit the parameter).
+    reasoning_effort: str = ""
+    reviewer_reasoning_effort: str = "low"
     # Multi-model debate engine. Opt-in; the debate panel reuses existing models
     # (primary_model + reviewer_model + fallback_models, deduped), each role
     # bound to a different model. The judge reuses reviewer_model.
@@ -1241,6 +1244,10 @@ def _parse_llm_config(data: dict[str, Any]) -> LlmConfig:
         ),
         review_loop_reviser=str(data.get("review_loop_reviser", "reviewer") or "reviewer"),
         reviewer_max_tokens=int(data.get("reviewer_max_tokens", 65536)),
+        reasoning_effort=str(data.get("reasoning_effort", "") or ""),
+        reviewer_reasoning_effort=str(
+            data.get("reviewer_reasoning_effort", "low") or "low"
+        ),
         debate_enabled=bool(data.get("debate_enabled", False)),
         debate_rounds=_safe_int(data.get("debate_rounds"), 1),
         tournament_enabled=bool(data.get("tournament_enabled", False)),

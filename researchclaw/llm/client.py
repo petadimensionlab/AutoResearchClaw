@@ -83,6 +83,9 @@ class LLMConfig:
     retry_base_delay: float = 2.0
     timeout_sec: int = 300
     user_agent: str = _DEFAULT_USER_AGENT
+    # Optional reasoning-effort hint ("low"/"medium"/"high"/"none") for
+    # reasoning models. Empty = omit the parameter entirely.
+    reasoning_effort: str = ""
     # MetaClaw bridge: extra headers for proxy requests
     extra_headers: dict[str, str] = field(default_factory=dict)
     # MetaClaw bridge: fallback URL if primary (proxy) is unreachable
@@ -163,6 +166,7 @@ class LLMClient:
             fallback_url=fallback_url,
             fallback_api_key=fallback_api_key,
             timeout_sec=getattr(rc_config.llm, "timeout_sec", 600),
+            reasoning_effort=str(getattr(rc_config.llm, "reasoning_effort", "") or ""),
         )
         client = cls(config)
 
@@ -225,6 +229,7 @@ class LLMClient:
             primary_model=reviewer_model,
             fallback_models=[],
             timeout_sec=getattr(llm, "timeout_sec", 600),
+            reasoning_effort=str(getattr(llm, "reviewer_reasoning_effort", "") or ""),
         )
         client = cls(config)
 
@@ -498,6 +503,9 @@ class LLMClient:
                     body["max_completion_tokens"] = max(max_tokens, reasoning_min)
                 else:
                     body["max_tokens"] = max_tokens
+
+                if self.config.reasoning_effort:
+                    body["reasoning_effort"] = self.config.reasoning_effort
 
             if json_mode:
                 # Many OpenAI-compatible providers don't support the
