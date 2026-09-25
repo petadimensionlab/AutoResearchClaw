@@ -75,6 +75,11 @@ class ExperimentHarness:
         """Fraction of time budget used (0.0 to 1.0)."""
         return min(self.elapsed / self._time_budget, 1.0)
 
+    @property
+    def metrics(self) -> dict[str, float]:
+        """Public alias for the reported metrics dict."""
+        return self._metrics
+
     def should_stop(self) -> bool:
         """Return True if approaching 80% of time budget."""
         return self.elapsed >= self._time_budget * 0.8
