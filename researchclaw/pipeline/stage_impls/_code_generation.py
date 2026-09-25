@@ -263,6 +263,15 @@ def _check_condition_differentiation(
                     _shutil_d.copytree(item, work / item.name, dirs_exist_ok=True)
             except OSError:
                 continue
+        # Inject the immutable harness so generated code that imports
+        # `experiment_harness` runs here exactly as it will in the sandbox
+        # (missing it caused a spurious "experiment does not run" failure).
+        _harness_src = Path(__file__).resolve().parents[2] / "experiment" / "harness_template.py"
+        if _harness_src.is_file():
+            try:
+                _shutil_d.copy2(_harness_src, work / "experiment_harness.py")
+            except OSError:
+                pass
         try:
             proc = _sp_d.run(
                 [exe, "main.py"], cwd=str(work),
