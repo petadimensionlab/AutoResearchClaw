@@ -236,7 +236,7 @@ def _repair_condition_differentiation(
     llm: Any,
     python_path: str,
     *,
-    attempts: int = 4,
+    attempts: int = 6,
 ) -> tuple[bool, str]:
     """Make the experiment's conditions distinguishable, then re-run the gate."""
     from researchclaw.pipeline.executor import _read_code_bundle, _write_code_blocks
@@ -404,6 +404,36 @@ def _check_condition_differentiation(
     return True, ""
 
 
+def _codegen_model_override(config: RCConfig, llm: Any) -> Any:
+    """Return a client using the configured code-generation model, else ``llm``.
+
+    ``experiment.code_agent.model`` lets Stage 10 (and its repair loop) run on a
+    different model than the rest of the pipeline (e.g. a reasoning model).
+    """
+    code_agent = getattr(getattr(config, "experiment", None), "code_agent", None)
+    model = str(getattr(code_agent, "model", "") or "").strip()
+    if not model or llm is None or not hasattr(llm, "config"):
+        return llm
+    try:
+        from researchclaw.llm.client import LLMClient, LLMConfig
+
+        base = llm.config
+        return LLMClient(
+            LLMConfig(
+                base_url=base.base_url,
+                api_key=base.api_key,
+                primary_model=model,
+                fallback_models=[],
+                timeout_sec=base.timeout_sec,
+                reasoning_effort=str(
+                    getattr(code_agent, "model_reasoning_effort", "") or ""
+                ),
+            )
+        )
+    except Exception:  # noqa: BLE001
+        return llm
+
+
 def _execute_code_generation(
     stage_dir: Path,
     run_dir: Path,
@@ -413,9 +443,10 @@ def _execute_code_generation(
     llm: LLMClient | None = None,
     prompts: PromptManager | None = None,
 ) -> StageResult:
+    llm = _codegen_model_override(config, llm)
+
     # ── ColliderAgent mode: generate a physics prompt instead of Python code ─
-    if config.experiment.mode == "collider_agent":
-        return _execute_collider_plan_generation(
+    if config.experiment.mode == "collider_agent":        return _execute_collider_plan_generation(
             stage_dir, run_dir, config, adapters, llm=llm, prompts=prompts
         )
     # ── End ColliderAgent bypass ──────────────────────────────────────────────

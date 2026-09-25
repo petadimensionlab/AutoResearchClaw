@@ -500,6 +500,10 @@ class CodeAgentConfig:
     tree_search_eval_timeout_sec: int = 120
     # Phase 5: Multi-agent review dialog
     review_max_rounds: int = 2
+    # Optional model override for code generation (empty = use the main model).
+    # Point this at a reasoning model to improve code correctness.
+    model: str = ""
+    model_reasoning_effort: str = "medium"
 
 
 @dataclass(frozen=True)
@@ -1550,6 +1554,8 @@ def _parse_code_agent_config(data: dict[str, Any]) -> CodeAgentConfig:
         tree_search_enabled=bool(data.get("tree_search_enabled", False)),
         tree_search_candidates=_safe_int(data.get("tree_search_candidates"), 3),
         tree_search_max_depth=_safe_int(data.get("tree_search_max_depth"), 2),
+        model=str(data.get("model", "") or ""),
+        model_reasoning_effort=str(data.get("model_reasoning_effort", "medium") or "medium"),
         tree_search_eval_timeout_sec=_safe_int(
             data.get("tree_search_eval_timeout_sec"), 120
         ),
