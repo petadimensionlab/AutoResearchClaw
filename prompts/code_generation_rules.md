@@ -77,3 +77,12 @@ EXECUTION CONTRACT (mandatory — the sandbox copies these files FLAT and runs `
 - `main.py` must run to completion with no manual setup and emit metrics: write `results.json`
   and/or print one `metric: value` line per condition. A run that finishes in under a second
   with no metrics is treated as a crash and fails the pipeline.
+
+NUMERICAL-API COMPATIBILITY (mandatory — NumPy 2.x):
+- Use only NumPy 2.x API names. Removed 1.x names MUST NOT be used:
+  `np.trapz` (use `np.trapezoid`), `np.float_` (`np.float64`), `np.alltrue` (`np.all`),
+  `np.sometrue` (`np.any`), `np.product` (`np.prod`), `np.cumproduct` (`np.cumprod`),
+  `np.round_` (`np.round`), `np.NaN` (`np.nan`), `np.Inf` (`np.inf`), `np.string_` (`np.bytes_`),
+  `np.unicode_` (`np.str_`).
+- If unsure whether an API exists, prefer basic operations (e.g. implement trapezoidal
+  integration manually) instead of a possibly-removed helper.

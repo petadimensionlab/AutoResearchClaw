@@ -17,6 +17,43 @@ import sys
 import time
 
 
+def _patch_numpy_compat() -> None:
+    """Restore NumPy 1.x aliases removed in NumPy 2.0.
+
+    Generated experiment code frequently uses ``np.trapz`` and similar names
+    that no longer exist in NumPy 2.x, which makes the run crash. Importing the
+    harness (which every experiment does) restores these aliases so the code
+    runs on either NumPy major version.
+    """
+    try:
+        import numpy as _np
+    except Exception:  # noqa: BLE001
+        return
+    aliases = {
+        "trapz": "trapezoid",
+        "float_": "float64",
+        "alltrue": "all",
+        "sometrue": "any",
+        "product": "prod",
+        "cumproduct": "cumprod",
+        "round_": "round",
+        "NaN": "nan",
+        "Inf": "inf",
+        "infty": "inf",
+        "string_": "bytes_",
+        "unicode_": "str_",
+    }
+    for old, new in aliases.items():
+        if not hasattr(_np, old) and hasattr(_np, new):
+            try:
+                setattr(_np, old, getattr(_np, new))
+            except Exception:  # noqa: BLE001
+                pass
+
+
+_patch_numpy_compat()
+
+
 class ExperimentHarness:
     """Immutable experiment infrastructure for time and metric management."""
 
