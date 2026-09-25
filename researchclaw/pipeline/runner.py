@@ -5,6 +5,7 @@ import importlib
 import logging
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -373,6 +374,33 @@ def _stage12_failure_evidence(run_dir: Path, limit: int = 6000) -> str:
     return "\n\n".join(parts)[:limit] or "(no failure evidence captured)"
 
 
+def _flatten_package_imports(stage10: Path) -> int:
+    """Rewrite package-style imports to flat imports in an experiment project.
+
+    The sandbox copies the project files flat and runs ``python main.py``, so
+    ``from experiment.config import ...`` raises ModuleNotFoundError. This is a
+    deterministic fix that needs no LLM.
+    """
+    code_dir = stage10 / "experiment"
+    if not code_dir.is_dir():
+        return 0
+    changed = 0
+    for path in sorted(code_dir.rglob("*.py")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        new = re.sub(r"\bfrom\s+experiment\.", "from ", text)
+        new = re.sub(r"\bimport\s+experiment\.", "import ", new)
+        new = re.sub(r"\bfrom\s+experiment\s+import\s+", "import ", new)
+        new = re.sub(r"\bfrom\s+\.([A-Za-z_][A-Za-z0-9_]*)\s+import\s+", r"from \1 import ", new)
+        new = re.sub(r"\bfrom\s+\.\s+import\s+", "import ", new)
+        if new != text:
+            path.write_text(new, encoding="utf-8")
+            changed += 1
+    return changed
+
+
 def _repair_experiment_code(run_dir: Path, config: RCConfig, run_id: str) -> int:
     """Fix a degenerate experiment's code with the LLM.
 
@@ -400,13 +428,20 @@ def _repair_experiment_code(run_dir: Path, config: RCConfig, run_id: str) -> int
         return 0
 
     prompt = (
-        "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
-        "----- FAILURE EVIDENCE (the project crashed; see traceback) -----\n"
-        + evidence + "\n----- END -----\n\n"
-        "`python main.py` must run end-to-end and emit metrics (results.json or printed "
-        "metric lines). It currently crashes immediately and writes no metrics. Fix the "
-        "root cause(s) shown in the traceback. Output ONLY fenced code blocks with "
-        "'filename:' markers for every file you change."
+        "----- CURRENT PROJECT (for reference only) -----\n" + bundle + "\n----- END -----\n\n"
+        "----- FAILURE EVIDENCE -----\n" + evidence + "\n----- END -----\n\n"
+        "The project crashes because `main.py` uses package-style imports (for example "
+        "`from experiment.config import Config`) but the sandbox copies the files FLAT and runs "
+        "`python main.py`, so that import fails with ModuleNotFoundError.\n\n"
+        "Rewrite the experiment as a SINGLE, SELF-CONTAINED `main.py`:\n"
+        "- Import ONLY the Python standard library and numpy. Do NOT import any other project "
+        "file (no `config`, `data`, `methods`, `evaluate`, `experiment`).\n"
+        "- Inline all model / condition / metric logic into main.py.\n"
+        "- Define every experimental condition, run each one, and PRINT one line per condition:\n"
+        "  `<condition>: <metric_name>=<value>`\n"
+        "- Also write `results.json` mapping each condition name to `{metric: value}`.\n"
+        "- It must run to completion well within the time budget and print at least one metric.\n\n"
+        "Output exactly ONE fenced block:\n```filename:main.py\n<complete python code>\n```"
     )
     try:
         out = llm.chat(
@@ -910,30 +945,43 @@ def execute_pipeline(
                 and _is_zero_metric_failure(result.error)
             ):
                 logger.warning(
-                    "[%s] Stage 12 produced zero metrics — running repair then retrying",
-                    run_id,
+                    "[%s] Stage 12 produced zero metrics — repairing and retrying", run_id
                 )
-                try:
-                    _repair_experiment_code(run_dir, config, run_id)
-                except Exception:  # noqa: BLE001
-                    logger.exception("Experiment code repair for Stage 12 failed")
-                try:
-                    retry_result = execute_stage(
-                        stage,
-                        run_dir=run_dir,
-                        run_id=run_id,
-                        config=config,
-                        adapters=adapters,
-                        auto_approve_gates=auto_approve_gates,
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.exception("Retrying Stage 12 after repair failed")
-                else:
+                for attempt in (1, 2):
+                    if result.status != StageStatus.FAILED:
+                        break
+                    try:
+                        if attempt == 1:
+                            changed = _flatten_package_imports(run_dir / "stage-10")
+                            logger.info(
+                                "[%s] Stage 12 repair 1: normalized package imports in %d file(s)",
+                                run_id, changed,
+                            )
+                        else:
+                            written = _repair_experiment_code(run_dir, config, run_id)
+                            logger.info(
+                                "[%s] Stage 12 repair 2: LLM rewrote %d file(s)", run_id, written
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Experiment repair attempt %d failed", attempt)
+                    try:
+                        retry_result = execute_stage(
+                            stage,
+                            run_dir=run_dir,
+                            run_id=run_id,
+                            config=config,
+                            adapters=adapters,
+                            auto_approve_gates=auto_approve_gates,
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Retrying Stage 12 after repair failed")
+                        break
                     results[-1] = retry_result
                     result = retry_result
                     if retry_result.status == StageStatus.DONE:
                         logger.info("[%s] Stage 12 recovered after repair", run_id)
                         print(f"{prefix} {stage.name} — recovered after repair")
+                        break
 
             if result.status == StageStatus.FAILED:
                 if skip_noncritical and stage in NONCRITICAL_STAGES:
