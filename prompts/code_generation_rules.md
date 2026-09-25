@@ -86,3 +86,11 @@ NUMERICAL-API COMPATIBILITY (mandatory — NumPy 2.x):
   `np.unicode_` (`np.str_`).
 - If unsure whether an API exists, prefer basic operations (e.g. implement trapezoidal
   integration manually) instead of a possibly-removed helper.
+
+METRIC DESIGN FOR DIFFERENTIATION (mandatory):
+- The primary metric MUST be sensitive to the manipulated parameter: a small change in that
+  parameter must move the metric monotonically (or across a clear threshold) by a measurable margin.
+- Avoid saturated or noise-driven metrics (values pinned near 0 or 1, or dominated by randomness).
+- Vary the RNG seed PER CONDITION so identical means are never an artifact of one shared seed.
+- Before finishing, programmatically verify that `max(primary_metric) - min(primary_metric)` across
+  conditions exceeds 0.05 (or 5% of the range); if not, change the parameter regime and re-verify.

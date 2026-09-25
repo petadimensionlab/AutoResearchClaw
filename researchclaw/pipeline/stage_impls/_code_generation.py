@@ -224,6 +224,60 @@ def _check_rl_compatibility(code: str) -> list[str]:
     return errors
 
 
+_DIFF_REPAIR_SYSTEM = (
+    "You are fixing a generated experiment project. Output ONLY fenced code blocks, each "
+    "starting with '```filename:<relative path>' and ending with '```'. Output no prose."
+)
+
+
+def _repair_condition_differentiation(
+    stage_dir: Path,
+    note: str,
+    llm: Any,
+    python_path: str,
+    *,
+    attempts: int = 2,
+) -> tuple[bool, str]:
+    """Make the experiment's conditions distinguishable, then re-run the gate."""
+    from researchclaw.pipeline.executor import _read_code_bundle, _write_code_blocks
+
+    experiment_dir = stage_dir / "experiment"
+    for attempt in range(1, attempts + 1):
+        bundle, _rels = _read_code_bundle(stage_dir)
+        if not bundle or llm is None or not hasattr(llm, "chat"):
+            return False, note
+        prompt = (
+            "----- CURRENT PROJECT -----\n" + bundle + "\n----- END -----\n\n"
+            "----- PROBLEM -----\n" + note + "\n----- END -----\n\n"
+            f"Attempt {attempt}: the experiment's conditions produce IDENTICAL metrics, which "
+            "means the differentiating parameter is not actually wired into the simulation.\n"
+            "Fix it so each condition differs by a MEANINGFUL margin on at least one metric:\n"
+            "- Derive the RNG seed PER CONDITION (e.g. base_seed + index) — never one shared seed.\n"
+            "- Sweep the key parameter into a regime where outcomes differ (avoid 0/1 saturation).\n"
+            "- Make the manipulated variable enter the update rule, not merely a config field.\n"
+            "- Print one line per condition `<condition>: <metric>=<value>` and write results.json.\n"
+            "Output ONLY fenced code blocks with 'filename:' markers for every file you change."
+        )
+        try:
+            out = llm.chat(
+                [{"role": "user", "content": prompt}],
+                system=_DIFF_REPAIR_SYSTEM,
+                max_tokens=32768,
+                temperature=0.2,
+            ).content
+        except Exception:  # noqa: BLE001
+            return False, note
+        if not out.strip():
+            return False, note
+        if not _write_code_blocks(stage_dir, out):
+            return False, note
+        ok, new_note = _check_condition_differentiation(experiment_dir, python_path)
+        if ok:
+            return True, new_note
+        note = new_note
+    return False, note
+
+
 def _check_condition_differentiation(
     experiment_dir: Path, python_path: str, timeout: int = 180
 ) -> tuple[bool, str]:
@@ -1647,6 +1701,15 @@ Multi-file experiment project with {len(files)} file(s): {file_list}
         stage_dir / "experiment",
         config.experiment.sandbox.python_path,
     )
+    if not _diff_ok and llm is not None:
+        logger.warning(
+            "Stage 10: conditions indistinguishable — attempting repair: %s", _diff_note
+        )
+        _diff_ok, _diff_note = _repair_condition_differentiation(
+            stage_dir, _diff_note, llm, config.experiment.sandbox.python_path
+        )
+        if _diff_ok:
+            logger.info("Stage 10: condition differentiation repaired")
     if not _diff_ok:
         logger.error(
             "Stage 10: condition-differentiation gate failed: %s", _diff_note
