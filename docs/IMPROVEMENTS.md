@@ -351,3 +351,36 @@ export:
   （`config.researchclaw.example.yaml` に例を追加済み）。
 - 指示の内容: 数値はレポート／実験メトリクスに**逐語で存在する値のみ**を使用し、百分率・効果量・
   p 値・信頼区間・条件別統計を創作・導出しない。無い値は `not reported` とする。
+
+---
+
+## 9. 実験・論文パイプラインの標準化（クロスモデル・レビュー / コード生成 / 実行互換）
+
+### 9.1 クロスモデル・レビューループ（標準）
+- chat が生成 → base(reasoning) がレビュー → **base が改訂**（`chat → base review → base revise`）。
+- `llm.review_loop_enabled`（既定 true。`reviewer_model` 未設定なら no-op）
+- `llm.review_loop_stages`（既定 `[7, 8, 14, 15, 16, 17, 18, 19]`）
+- `llm.review_loop_reviser: "reviewer"`（base が改訂）/ `"author"`（chat が改訂）
+- `llm.reviewer_max_tokens: 65536`（reasoning が予算を食っても content が空にならない）
+- `llm.reviewer_reasoning_effort: "low"`（reasoning を約1/3に削減し、呼び出しを数十秒〜数分に短縮）
+- `.md` 成果物は review+revise、YAML/JSON と Stage 22 は **review-only**（成果物を壊さない）。
+- 批判は `stage-NN/cross_review.md` に保存。`scripts/base_review.py` で単体実行も可能。
+
+### 9.2 コード生成（Stage 10）は reasoning モデルで
+- `experiment.code_agent.model` に reasoning モデルを指定（例 `qwen3.8-flash-next`）＋
+  `model_reasoning_effort`（既定 `medium`）。chat では生成コードが繰り返し壊れたため。
+- Stage 10 ゲート: 条件差別化（`max−min>0.05`）に失敗したら **LLM 修復を最大6回**（トレースバック特化）。
+- **`metric_definition` 行を強制**（無ければ LLM で追加）。**Stage 13（REFINE）後にも再適用**。
+
+### 9.3 実行環境の互換修正（決定的なものは LLM に頼らない）
+- **フラット実行契約**: sandbox はファイルを平坦配置し `python main.py` を実行。パッケージ/相対
+  import（`from experiment.x` / `from .x`）を禁止（プロンプト）＋ Stage 12 で import 正規化。
+- **NumPy 2.x 互換 shim**: harness が `np.trapz` 等の削除済み別名を復元。
+- **harness 注入**: Stage 10 の条件差別化ゲートの一時ディレクトリにも harness を注入。
+- **harness 公開 API**: `metrics` プロパティを追加（生成コードが参照するため）。
+- **Stage 12 ゼロメトリクス修復**: ① import 正規化（決定的）→ ② 自己完結型 `main.py` を LLM 生成 → 再実行。
+
+### 9.4 実測（標準化後）
+- 完走: **20/20 stages done, 0 failed**（REFINE ×2 を含む）、`paper.docx` 638KB、
+  `paper_final.md` 5,599語、引用 8/8 verified、実験は 9条件で差別化。
+- ステージ実行の合計 ≈ 2.9h（base のレビュー/コード生成を含む。ds4 は単一スロット直列）。

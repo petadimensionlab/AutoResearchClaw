@@ -132,14 +132,16 @@ def _review_result_with(result: StageResult, name: str) -> StageResult:
     )
 
 
-def _read_code_bundle(stage_dir: Path, limit: int = 120_000) -> tuple[str, list[str]]:
-    code_dir = stage_dir / _CODE_DIR
-    if not code_dir.is_dir():
+def _read_code_bundle(
+    stage_dir: Path, limit: int = 120_000, code_dir: str = _CODE_DIR
+) -> tuple[str, list[str]]:
+    root = stage_dir / code_dir
+    if not root.is_dir():
         return "", []
     parts: list[str] = []
     rels: list[str] = []
     total = 0
-    for path in sorted(code_dir.rglob("*.py")):
+    for path in sorted(root.rglob("*.py")):
         if not path.is_file():
             continue
         rel = path.relative_to(stage_dir).as_posix()
@@ -155,10 +157,10 @@ def _read_code_bundle(stage_dir: Path, limit: int = 120_000) -> tuple[str, list[
     return "\n\n".join(parts), rels
 
 
-def _write_code_blocks(stage_dir: Path, text: str) -> int:
+def _write_code_blocks(stage_dir: Path, text: str, code_dir: str = _CODE_DIR) -> int:
     import ast
 
-    experiment_root = (stage_dir / _CODE_DIR).resolve()
+    experiment_root = (stage_dir / code_dir).resolve()
     written = 0
     for match in _CODE_FENCE_RE.finditer(text):
         rel = match.group(1).strip().lstrip("/")

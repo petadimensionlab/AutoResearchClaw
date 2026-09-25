@@ -95,6 +95,7 @@ This repository is a **petadimensionlab 独立版 (standalone derivative)** of [
 See [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) for the full write-up (in Japanese).
 
 - 🔄 Upstream sync procedure: [docs/UPSTREAM_SYNC.md](docs/UPSTREAM_SYNC.md)
+- 🧪 Pipeline standards: [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) §9 — cross-model review loop (`chat → base review → base revise`), reasoning model for code generation, and execution-compat fixes
 
 ---
 

@@ -404,11 +404,13 @@ def _check_condition_differentiation(
     return True, ""
 
 
-def _ensure_metric_definition(stage_dir: Path, llm: Any, *, attempts: int = 2) -> bool:
+def _ensure_metric_definition(
+    stage_dir: Path, llm: Any, *, attempts: int = 2, code_dir: str = "experiment"
+) -> bool:
     """Ensure the experiment emits a ``metric_definition:`` line for its primary metric."""
     from researchclaw.pipeline.executor import _read_code_bundle, _write_code_blocks
 
-    experiment_dir = stage_dir / "experiment"
+    experiment_dir = stage_dir / code_dir
 
     def _present() -> bool:
         for path in experiment_dir.rglob("*.py"):
@@ -422,7 +424,7 @@ def _ensure_metric_definition(stage_dir: Path, llm: Any, *, attempts: int = 2) -
     if _present():
         return True
     for _ in range(attempts):
-        bundle, _rels = _read_code_bundle(stage_dir)
+        bundle, _rels = _read_code_bundle(stage_dir, code_dir=code_dir)
         if not bundle or llm is None or not hasattr(llm, "chat"):
             return False
         prompt = (
@@ -443,7 +445,7 @@ def _ensure_metric_definition(stage_dir: Path, llm: Any, *, attempts: int = 2) -
         except Exception:  # noqa: BLE001
             return False
         if out.strip():
-            _write_code_blocks(stage_dir, out)
+            _write_code_blocks(stage_dir, out, code_dir=code_dir)
         if _present():
             return True
     return False

@@ -781,6 +781,20 @@ def execute_pipeline(
             print(f"[{run_id}] Reached --to-stage {stage.name}, stopping pipeline.")
             break
 
+        # --- Enforce a metric_definition line after Stage 13 refines the code ---
+        if stage == Stage.ITERATIVE_REFINE and result.status == StageStatus.DONE:
+            try:
+                from researchclaw.pipeline.stage_impls._code_generation import (
+                    _ensure_metric_definition,
+                )
+
+                if _ensure_metric_definition(
+                    run_dir / "stage-13", create_llm_client(config), code_dir="experiment_final"
+                ):
+                    logger.info("[%s] Stage 13: metric_definition present", run_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Stage 13 metric_definition enforcement failed")
+
         # --- Experiment diagnosis + repair after Stage 14 (result_analysis) ---
         if (
             stage == Stage.RESULT_ANALYSIS
