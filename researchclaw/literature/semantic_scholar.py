@@ -6,8 +6,10 @@ Public API
 ----------
 - ``search_semantic_scholar(query, limit, year_min)`` → ``list[Paper]``
 
-Rate limit: 1 req/s (free, no API key).  Retries up to 3 times with
-exponential back-off on transient failures.
+Rate limit: 1 request/second, cumulative across all S2 endpoints. The budget
+is shared between search and batch calls, so a single module-level timestamp
+serializes every request. Retries up to 3 times with exponential back-off on
+transient failures.
 
 Circuit breaker has three states:
   CLOSED → normal operation
@@ -34,7 +36,8 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 _FIELDS = "paperId,title,abstract,year,venue,citationCount,authors,externalIds,url"
 _MAX_PER_REQUEST = 100
-_RATE_LIMIT_SEC = 1.5  # conservative spacing between requests
+_RATE_LIMIT_SEC = 1.5  # no-key spacing (unauthenticated shared pool)
+_RATE_LIMIT_SEC_KEYED = 1.1  # S2 limit: 1 req/s cumulative across ALL endpoints (+margin)
 _MAX_RETRIES = 3
 _MAX_WAIT_SEC = 60
 _TIMEOUT_SEC = 30
@@ -140,7 +143,8 @@ def _cb_on_429() -> bool:
         return False
 
 
-# Last request timestamp for rate limiting
+# Shared across search and batch so every S2 endpoint draws from the same
+# 1 req/s budget (S2 meters cumulatively across endpoints).
 _last_request_time: float = 0.0
 _rate_lock = threading.Lock()
 
@@ -163,7 +167,8 @@ def search_semantic_scholar(
     year_min:
         If >0, restrict to papers published in this year or later.
     api_key:
-        Optional S2 API key (raises rate limit to 10 req/s).
+        Optional S2 API key. The ceiling stays 1 request/second — S2 meters
+        cumulatively across all endpoints, so the key does not allow bursts.
 
     Returns
     -------
@@ -175,7 +180,7 @@ def search_semantic_scholar(
     # Rate limiting: locked to serialize concurrent callers
     with _rate_lock:
         now = time.monotonic()
-        rate_limit = 0.3 if api_key else _RATE_LIMIT_SEC
+        rate_limit = _RATE_LIMIT_SEC_KEYED if api_key else _RATE_LIMIT_SEC
         elapsed_since_last = now - _last_request_time
         if elapsed_since_last < rate_limit:
             time.sleep(rate_limit - elapsed_since_last)
@@ -292,7 +297,7 @@ def batch_fetch_papers(
         return []
 
     global _last_request_time  # noqa: PLW0603
-    rate = 0.3 if api_key else _RATE_LIMIT_SEC
+    rate = _RATE_LIMIT_SEC_KEYED if api_key else _RATE_LIMIT_SEC
     with _rate_lock:
         now = time.monotonic()
         elapsed = now - _last_request_time
