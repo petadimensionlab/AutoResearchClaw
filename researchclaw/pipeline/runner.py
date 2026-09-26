@@ -1260,6 +1260,11 @@ def _package_deliverables(
         shutil.copy2(san_src, dest / "sanitization_report.json")
         packaged.append("sanitization_report.json")
 
+    dr_src = run_dir / "deep_research.md"
+    if dr_src.is_file() and dr_src.stat().st_size > 0:
+        shutil.copy2(dr_src, dest / "deep_research.md")
+        packaged.append("deep_research.md")
+
     # --- 6. Charts (optional) ---
     charts_src = run_dir / "stage-22" / "charts"
     if charts_src.is_dir() and any(charts_src.iterdir()):

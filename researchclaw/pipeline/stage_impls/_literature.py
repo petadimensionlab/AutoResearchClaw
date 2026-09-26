@@ -697,6 +697,7 @@ def _execute_literature_collect(
             )
             if _dr_report:
                 (stage_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
+                (run_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
                 artifacts.append("deep_research.md")
                 logger.info("[deep-research] saved report (%d chars)", len(_dr_report))
             else:
