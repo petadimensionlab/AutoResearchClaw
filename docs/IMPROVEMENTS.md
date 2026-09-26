@@ -384,3 +384,23 @@ export:
 - 完走: **20/20 stages done, 0 failed**（REFINE ×2 を含む）、`paper.docx` 638KB、
   `paper_final.md` 5,599語、引用 8/8 verified、実験は 9条件で差別化。
 - ステージ実行の合計 ≈ 2.9h（base のレビュー/コード生成を含む。ds4 は単一スロット直列）。
+
+---
+
+## 10. 文献バックエンドの追加（Consensus / local-deep-research）
+
+### 10.1 Consensus.app（有償・任意）
+- 新規 `literature/consensus_client.py`: `GET https://api.consensus.app/v1/search`（`x-api-key`、
+  1 req/s スロットル、429 リトライ、`Paper` へ正規化）。
+- `config.arc.yaml` の `literature_search.sources` に `"consensus"` を追加し、
+  `consensus_api_key`（または `CONSENSUS_API_KEY`）を設定すると有効になります。
+- **課金**: 100論文=1コール。契約プラン内なら $0、超過 $0.05/コール。全文抜粋は有償プランのみ。
+- 実測: スモークテストで 1リクエスト 3.8秒 / 5件（実DOI・被引用数）。
+
+### 10.2 local-deep-research（LDR・任意・HTTP方式 B1）
+- 新規 `literature/deep_research_client.py`: LDR サーバ（`ldr-web`, 既定 :5000）へ
+  `/auth/csrf-token` → `/auth/login` → `/api/start_research` → `/status` → `/report` を HTTP で呼ぶ。
+  **重依存（torch 等）を researchclaw に持ち込まない**設計。失敗は非致命（空文字を返す）。
+- `config.arc.yaml` の `literature_search.deep_research.enabled: true` で有効化。有効時は
+  Stage 4 が `stage-04/deep_research.md` にレポートを保存します（文献ソースの重複は回避）。
+- LDR は別途起動が必要（あなたの fork: `petadimensionlab/local-deep-research`, MIT）。

@@ -680,6 +680,30 @@ def _execute_literature_collect(
     )
     artifacts.append("search_meta.json")
 
+    # Optional local-deep-research (LDR) augmentation — opt-in, non-fatal.
+    try:
+        _dr = getattr(config.literature_search, "deep_research", None)
+        if _dr is not None and _dr.enabled:
+            from researchclaw.literature.deep_research_client import deep_research_report
+
+            _dr_password = _dr.password or os.environ.get(_dr.password_env, "")
+            _dr_report = deep_research_report(
+                topic,
+                endpoint=_dr.endpoint,
+                username=_dr.username,
+                password=_dr_password,
+                strategy=_dr.strategy,
+                timeout_sec=_dr.timeout_sec,
+            )
+            if _dr_report:
+                (stage_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
+                artifacts.append("deep_research.md")
+                logger.info("[deep-research] saved report (%d chars)", len(_dr_report))
+            else:
+                logger.info("[deep-research] no report returned (server running?)")
+    except Exception:  # noqa: BLE001
+        logger.warning("[deep-research] augmentation failed", exc_info=True)
+
     return StageResult(
         stage=Stage.LITERATURE_COLLECT,
         status=StageStatus.DONE,

@@ -105,6 +105,16 @@ literature_search:
   s2_api_key: ""
   consensus_api_key_env: "CONSENSUS_API_KEY"
   consensus_api_key: ""
+  # Optional: local-deep-research (LDR) HTTP augmentation. Start the LDR server
+  # separately (ldr-web, default :5000) and enable this block. Non-fatal if down.
+  deep_research:
+    enabled: false
+    endpoint: "http://localhost:5000"
+    username: ""
+    password: ""
+    password_env: "LDR_PASSWORD"
+    strategy: ""
+    timeout_sec: 900
 
 security:
   hitl_required_stages: [5, 9, 20]

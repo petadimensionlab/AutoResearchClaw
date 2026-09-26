@@ -255,6 +255,19 @@ class LlmConfig:
 
 
 @dataclass(frozen=True)
+class DeepResearchConfig:
+    """Optional local-deep-research (LDR) HTTP augmentation for Stage 4."""
+
+    enabled: bool = False
+    endpoint: str = "http://localhost:5000"
+    username: str = ""
+    password: str = ""
+    password_env: str = "LDR_PASSWORD"
+    strategy: str = ""
+    timeout_sec: int = 900
+
+
+@dataclass(frozen=True)
 class LiteratureSearchConfig:
     """Configuration for Stage 4 academic literature search backends."""
 
@@ -268,6 +281,7 @@ class LiteratureSearchConfig:
     s2_api_key_env: str = "S2_API_KEY"
     consensus_api_key: str = ""
     consensus_api_key_env: str = "CONSENSUS_API_KEY"
+    deep_research: DeepResearchConfig = field(default_factory=DeepResearchConfig)
 
 
 @dataclass(frozen=True)
@@ -1322,6 +1336,21 @@ def _parse_literature_search_config(data: dict[str, Any]) -> LiteratureSearchCon
                 LiteratureSearchConfig.consensus_api_key_env,
             )
         ),
+        deep_research=_parse_deep_research_config(data.get("deep_research") or {}),
+    )
+
+
+def _parse_deep_research_config(data: dict[str, Any]) -> DeepResearchConfig:
+    if not data:
+        return DeepResearchConfig()
+    return DeepResearchConfig(
+        enabled=bool(data.get("enabled", False)),
+        endpoint=str(data.get("endpoint", DeepResearchConfig.endpoint) or ""),
+        username=str(data.get("username", "") or ""),
+        password=str(data.get("password", "") or ""),
+        password_env=str(data.get("password_env", DeepResearchConfig.password_env) or ""),
+        strategy=str(data.get("strategy", "") or ""),
+        timeout_sec=max(1, _safe_int(data.get("timeout_sec"), DeepResearchConfig.timeout_sec)),
     )
 
 
