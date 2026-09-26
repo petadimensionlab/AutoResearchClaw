@@ -95,6 +95,7 @@ literature_search:
     - "openalex"
     - "semantic_scholar"
     - "arxiv"
+    # "consensus"   # Consensus.app (paid; needs CONSENSUS_API_KEY; 1 req/s)
   max_results_per_query: 40
   inter_query_delay_sec: 1.5
   openalex_email: "researchclaw@users.noreply.github.com"
@@ -102,6 +103,8 @@ literature_search:
   openalex_api_key: ""
   s2_api_key_env: "S2_API_KEY"
   s2_api_key: ""
+  consensus_api_key_env: "CONSENSUS_API_KEY"
+  consensus_api_key: ""
 
 security:
   hitl_required_stages: [5, 9, 20]

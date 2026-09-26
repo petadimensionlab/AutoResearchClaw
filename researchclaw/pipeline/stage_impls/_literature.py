@@ -432,12 +432,19 @@ def _execute_literature_collect(
             literature_config.openalex_api_key
             or os.environ.get(literature_config.openalex_api_key_env, "")
         )
+        consensus_api_key = (
+            literature_config.consensus_api_key
+            or os.environ.get(literature_config.consensus_api_key_env, "")
+        )
         logger.info(
             "[literature] Searching %d queries (expanded from %d) "
-            "across %s",
+            "across %s (keys: openalex=%s s2=%s consensus=%s)",
             len(expanded_queries),
             len(queries),
             " -> ".join(literature_config.sources),
+            "set" if openalex_api_key else "none",
+            "set" if s2_api_key else "none",
+            "set" if consensus_api_key else "none",
         )
         papers = search_papers_multi_query(
             expanded_queries,
@@ -447,6 +454,7 @@ def _execute_literature_collect(
             s2_api_key=s2_api_key,
             openalex_email=literature_config.openalex_email,
             openalex_api_key=openalex_api_key,
+            consensus_api_key=consensus_api_key,
             inter_query_delay=literature_config.inter_query_delay_sec,
         )
         if papers:

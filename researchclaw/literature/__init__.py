@@ -5,6 +5,7 @@ with deduplication and BibTeX generation.  All network I/O uses stdlib
 ``urllib`` — **zero** extra pip dependencies.
 """
 
+from researchclaw.literature.consensus_client import search_consensus
 from researchclaw.literature.models import Author, Paper
 from researchclaw.literature.search import search_papers
 from researchclaw.literature.verify import (
@@ -20,6 +21,7 @@ __all__ = [
     "Paper",
     "VerificationReport",
     "VerifyStatus",
+    "search_consensus",
     "search_papers",
     "verify_citations",
 ]

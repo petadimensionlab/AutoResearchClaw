@@ -266,6 +266,8 @@ class LiteratureSearchConfig:
     openalex_api_key_env: str = "OPENALEX_API_KEY"
     s2_api_key: str = ""
     s2_api_key_env: str = "S2_API_KEY"
+    consensus_api_key: str = ""
+    consensus_api_key_env: str = "CONSENSUS_API_KEY"
 
 
 @dataclass(frozen=True)
@@ -1312,6 +1314,13 @@ def _parse_literature_search_config(data: dict[str, Any]) -> LiteratureSearchCon
         s2_api_key=str(data.get("s2_api_key", "")),
         s2_api_key_env=str(
             data.get("s2_api_key_env", LiteratureSearchConfig.s2_api_key_env)
+        ),
+        consensus_api_key=str(data.get("consensus_api_key", "")),
+        consensus_api_key_env=str(
+            data.get(
+                "consensus_api_key_env",
+                LiteratureSearchConfig.consensus_api_key_env,
+            )
         ),
     )
 

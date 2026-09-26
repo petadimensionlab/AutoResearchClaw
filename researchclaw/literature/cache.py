@@ -25,6 +25,7 @@ _SOURCE_TTL: dict[str, float] = {
     "arxiv": 86400,         # 24 hours — arXiv metadata updates once/day
     "semantic_scholar": 86400 * 3,  # 3 days
     "openalex": 86400 * 3,  # 3 days
+    "consensus": 86400 * 3,  # 3 days
     "citation_verify": 86400 * 365,  # ~permanent
 }
 

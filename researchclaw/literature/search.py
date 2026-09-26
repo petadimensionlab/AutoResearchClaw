@@ -25,6 +25,7 @@ import urllib.error
 from typing import cast
 
 from researchclaw.literature.arxiv_client import search_arxiv
+from researchclaw.literature.consensus_client import search_consensus
 from researchclaw.literature.models import Author, Paper
 from researchclaw.literature.openalex_client import search_openalex
 from researchclaw.literature.semantic_scholar import search_semantic_scholar
@@ -111,6 +112,7 @@ def search_papers(
     s2_api_key: str = "",
     openalex_email: str = "",
     openalex_api_key: str = "",
+    consensus_api_key: str = "",
 ) -> list[Paper]:
     """Search multiple academic sources and return deduplicated results.
 
@@ -196,6 +198,19 @@ def search_papers(
                 source_stats["arxiv"] = len(papers)
                 logger.info("arXiv returned %d papers for %r", len(papers), query)
 
+            elif src_lower == "consensus":
+                papers = search_consensus(
+                    query,
+                    limit=limit,
+                    year_min=year_min,
+                    api_key=consensus_api_key,
+                )
+                all_papers.extend(papers)
+                cache_put(query, "consensus", limit, _papers_to_dicts(papers))
+                source_stats["consensus"] = len(papers)
+                logger.info("Consensus returned %d papers for %r", len(papers), query)
+                time.sleep(1.0)
+
             else:
                 logger.warning("Unknown literature source: %s (skipped)", src)
         except (
@@ -252,6 +267,7 @@ def search_papers_multi_query(
     s2_api_key: str = "",
     openalex_email: str = "",
     openalex_api_key: str = "",
+    consensus_api_key: str = "",
     inter_query_delay: float = 1.5,
 ) -> list[Paper]:
     """Run multiple queries and return deduplicated union.
@@ -271,6 +287,7 @@ def search_papers_multi_query(
             s2_api_key=s2_api_key,
             openalex_email=openalex_email,
             openalex_api_key=openalex_api_key,
+            consensus_api_key=consensus_api_key,
             deduplicate=False,  # we dedup globally below
         )
         all_papers.extend(results)
