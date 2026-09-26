@@ -106,14 +106,18 @@ literature_search:
   consensus_api_key_env: "CONSENSUS_API_KEY"
   consensus_api_key: ""
   # Optional: local-deep-research (LDR) HTTP augmentation. Start the LDR server
-  # separately (ldr-web, default :5000) and enable this block. Non-fatal if down.
+  # separately (ldr-web; on macOS :5000 is taken by AirPlay — use e.g. 5055) and
+  # enable this block. Non-fatal if down. The first Stage-3 keyword query and a
+  # domain-appropriate engine are sent per request; engine "" auto-selects from
+  # research.domains (biomedical->pubmed, social->openalex, cs/physics->arxiv).
   deep_research:
     enabled: false
-    endpoint: "http://localhost:5000"
+    endpoint: "http://localhost:5055"
     username: ""
     password: ""
     password_env: "LDR_PASSWORD"
     strategy: ""
+    engine: ""
     timeout_sec: 900
 
 security:

@@ -24,6 +24,55 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_SEC = 30
 
+# LDR engine selection by research domain. The LDR server accepts a per-request
+# ``search_engine`` override, so we route each topic to an engine that fits its
+# field instead of relying on a single server-side default (e.g. pubmed, which
+# returns irrelevant hits for non-biomedical topics).
+_ENGINE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "pubmed",
+        (
+            "biomed", "medic", "clinic", "health", "biolog", "genom",
+            "epidemi", "oncolog", "pharma", "neuro", "cell", "immuno",
+        ),
+    ),
+    (
+        "openalex",
+        (
+            "social", "psycholog", "behavio", "economic", "policy",
+            "environment", "sociolog", "political", "education",
+            "humanities", "business", "law", "sustainab", "climate",
+        ),
+    ),
+    (
+        "arxiv",
+        (
+            "physics", "quantum", "astro", "math", "computer",
+            "machine-learning", "machine learning", "artificial intelligence",
+            "nlp", "vision", "statistic", "robotics", "deep learning",
+        ),
+    ),
+)
+_DEFAULT_ENGINE = "openalex"
+
+
+def select_search_engine(domains: Any) -> str:
+    """Pick an LDR search engine for *domains* (iterable of domain labels).
+
+    Vote-based: each domain label matching an engine's keywords adds a vote;
+    the engine with the most votes wins, ties resolved toward the default
+    (``openalex``, all-discipline). Returns the default when nothing matches.
+    """
+    votes: dict[str, int] = {}
+    for domain in domains or ():
+        text = str(domain).lower()
+        for engine, keywords in _ENGINE_KEYWORDS:
+            if any(keyword in text for keyword in keywords):
+                votes[engine] = votes.get(engine, 0) + 1
+    if not votes:
+        return _DEFAULT_ENGINE
+    return max(votes, key=lambda engine: (votes[engine], engine == _DEFAULT_ENGINE))
+
 
 def _opener() -> urllib.request.OpenerDirector:
     jar = http.cookiejar.CookieJar()
@@ -66,10 +115,16 @@ def deep_research_report(
     username: str = "",
     password: str = "",
     strategy: str = "",
+    engine: str = "",
     timeout_sec: int = 900,
     poll_sec: float = 5.0,
 ) -> str:
-    """Return a markdown report from an LDR server, or "" on any failure."""
+    """Return a markdown report from an LDR server, or "" on any failure.
+
+    ``engine`` overrides the server-side search engine for this run only
+    (LDR honors a per-request ``search_engine``); empty keeps the server
+    default.
+    """
     base = (endpoint or "").rstrip("/")
     if not base or not query.strip():
         return ""
@@ -100,6 +155,8 @@ def deep_research_report(
         payload: dict[str, object] = {"query": query}
         if strategy:
             payload["strategy"] = strategy
+        if engine:
+            payload["search_engine"] = engine
         started = _request(
             opener,
             f"{base}/api/start_research",

@@ -264,6 +264,7 @@ class DeepResearchConfig:
     password: str = ""
     password_env: str = "LDR_PASSWORD"
     strategy: str = ""
+    engine: str = ""
     timeout_sec: int = 900
 
 
@@ -1350,6 +1351,7 @@ def _parse_deep_research_config(data: dict[str, Any]) -> DeepResearchConfig:
         password=str(data.get("password", "") or ""),
         password_env=str(data.get("password_env", DeepResearchConfig.password_env) or ""),
         strategy=str(data.get("strategy", "") or ""),
+        engine=str(data.get("engine", "") or ""),
         timeout_sec=max(1, _safe_int(data.get("timeout_sec"), DeepResearchConfig.timeout_sec)),
     )
 

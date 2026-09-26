@@ -684,15 +684,26 @@ def _execute_literature_collect(
     try:
         _dr = getattr(config.literature_search, "deep_research", None)
         if _dr is not None and _dr.enabled:
-            from researchclaw.literature.deep_research_client import deep_research_report
+            from researchclaw.literature.deep_research_client import (
+                deep_research_report,
+                select_search_engine,
+            )
 
             _dr_password = _dr.password or os.environ.get(_dr.password_env, "")
+            # LDR searches its own engines. Send one concise keyword query (the
+            # first Stage-3 query) rather than the raw question or a joined
+            # multi-query blob — joined blobs collapse an engine's match count.
+            _dr_query = next(
+                (q.strip() for q in queries if q and q.strip()), topic
+            )
+            _dr_engine = _dr.engine or select_search_engine(config.research.domains)
             _dr_report = deep_research_report(
-                topic,
+                _dr_query,
                 endpoint=_dr.endpoint,
                 username=_dr.username,
                 password=_dr_password,
                 strategy=_dr.strategy,
+                engine=_dr_engine,
                 timeout_sec=_dr.timeout_sec,
             )
             if _dr_report:

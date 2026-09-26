@@ -61,3 +61,54 @@ def test_deep_research_failed_status(monkeypatch) -> None:
     monkeypatch.setattr(drc, "_request", fake_request)
     monkeypatch.setattr(drc, "_opener", lambda: object())
     assert drc.deep_research_report("q", endpoint="http://x") == ""
+
+
+def test_select_search_engine_routes_by_domain() -> None:
+    assert drc.select_search_engine(("biology", "immunology")) == "pubmed"
+    assert (
+        drc.select_search_engine(
+            (
+                "machine-learning",
+                "computational-social-science",
+                "behavioral-science",
+                "environmental-behavior",
+            )
+        )
+        == "openalex"
+    )
+    assert drc.select_search_engine(("quantum-physics",)) == "arxiv"
+    assert drc.select_search_engine(()) == "openalex"
+    assert drc.select_search_engine(("misc-topic",)) == "openalex"
+
+
+def _capture_start_payload(monkeypatch, **kwargs):  # type: ignore[no-untyped-def]
+    import json as _json
+
+    payloads: list[dict] = []
+
+    def fake_request(opener, url, **kw):  # type: ignore[no-untyped-def]
+        if url.endswith("/api/start_research"):
+            payloads.append(_json.loads(kw["data"].decode()))
+            return {"research_id": "r1"}
+        if url.endswith("/auth/csrf-token"):
+            return {"csrf_token": "c"}
+        if "/status" in url:
+            return {"status": "completed"}
+        if "/api/report/r1" in url:
+            return {"content": "ok"}
+        return {}
+
+    monkeypatch.setattr(drc, "_request", fake_request)
+    monkeypatch.setattr(drc, "_opener", lambda: object())
+    drc.deep_research_report("q", endpoint="http://x", **kwargs)
+    return payloads
+
+
+def test_deep_research_report_sends_search_engine(monkeypatch) -> None:
+    payloads = _capture_start_payload(monkeypatch, engine="openalex")
+    assert payloads and payloads[0].get("search_engine") == "openalex"
+
+
+def test_deep_research_report_omits_blank_engine(monkeypatch) -> None:
+    payloads = _capture_start_payload(monkeypatch)
+    assert payloads and "search_engine" not in payloads[0]
