@@ -402,3 +402,36 @@ OpenAlex エンジン（LDR フォーク）に **0件時のクエリ緩和リト
 残る制約:
 - それでも LDR の生成質問は超具体的で、緩和に依存している。根本強化には **汎用 Web 検索エンジン（Tavily / Brave / Exa 等）の API キー**を LDR に設定するのが最も効果的（未設定）。
 - 検証用 LDR サーバ（5055）は停止済み。
+
+---
+
+## 13. LDR リンクの取り込み（A）と Stage 1–3 での活用（B）（2026-09-26 実装）
+
+### 13.1 背景
+
+従来 `deep_research.md` は **保存されるだけ**で、どのステージも読んでおらず、LDR の引用リンクは `candidates.jsonl` / `references.bib` に**入っていなかった**（実測: レポートの 28 DOI のうち candidates にあるのは 8 件のみで、それも他ソースが偶然見つけた同一論文）。
+
+### 13.2 A: LDR 引用をコーパスへ取り込み
+
+- `deep_research_client.parse_report_sources()`: レポートの `## Sources` ブロック（`[N] Title …` ＋ `URL:` 行）を解析し、DOI/URL ごとに `Paper(source="ldr")` を返す（DOI 優先で重複排除）。
+- Stage 4: LDR レポート取得を **`candidates.jsonl` / `references.bib` の書き出し前**に移動し、パースした論文を **DOI 重複排除のうえ `candidates` と `bibtex_entries` にマージ**。→ Stage 5 スクリーニング・Stage 7 合成・Stage 23 引用検証まで流れる。
+
+**実測（実トピック Stage 4）**: `source="ldr"` の候補がマージされ、**LDR DOI 7/8 が candidates.jsonl と references.bib の両方に出現**。
+
+### 13.3 B: Stage 1–3 での活用（pre-search）
+
+- Stage 3（SEARCH_STRATEGY）で、クエリ生成の**前に LDR を実行**し、レポートを `run_dir/deep_research.md` にキャッシュ。
+- Stage 3 の `search_strategy` プロンプトに `{deep_research}` プレースホルダを追加（`prompts/ml.py`, `prompts/hep.py`）し、**LDR の知見をクエリ生成の背景として注入**（空時は `(none available)`）。
+- Stage 4 はキャッシュ (`run_dir/deep_research.md`) を**再利用**するため、LDR 呼び出しは 1 run につき Stage 3 の 1 回のみ。
+
+**実測**: Stage 3 の所要が **20s → 121s**（LDR 実行）、run_dir レポートの mtime が Stage 3 時点、stage-04 が Stage 4 時点 → pre-search + 再利用を確認。`{deep_research}` は正しく置換される。
+
+### 13.4 補足（レポート規模の変動）
+
+LDR のレポートは **同一クエリでも実行間で大きく変動**する（keyword クエリで 12 DOI / 28 DOI を観測）。したがって DOI 数の差はクエリ形式より **LDR の非決定性**に起因する。pre-search が topic を使うことは品質上の問題ではない。
+
+### 13.5 追加された主なコード
+
+- `researchclaw/literature/deep_research_client.py`: `parse_report_sources()`（＋テスト 2 件）。
+- `researchclaw/pipeline/stage_impls/_literature.py`: `_run_ldr_deep_research()` / `_cached_ldr_report()`、Stage 3 pre-search + 注入、Stage 4 マージ。
+- `researchclaw/prompts/ml.py` / `hep.py`: `{deep_research}` プレースホルダ。
