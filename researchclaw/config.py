@@ -724,6 +724,9 @@ class ExportConfig:
     output_format: str = DEFAULT_EXPORT_FORMAT
     # Optional pandoc reference .docx used for Word styling.
     docx_reference: str = ""
+    # Append a "Local Deep Research Results" appendix to the final paper when a
+    # run_dir/deep_research.md report exists (Stage 22).
+    include_deep_research_appendix: bool = True
 
 
 @dataclass(frozen=True)
@@ -1068,6 +1071,9 @@ class RCConfig:
                 bib_file=export.get("bib_file", "references"),
                 output_format=_normalize_export_format(export.get("output_format")),
                 docx_reference=str(export.get("docx_reference", "") or ""),
+                include_deep_research_appendix=bool(
+                    export.get("include_deep_research_appendix", True)
+                ),
             ),
             prompts=PromptsConfig(
                 custom_file=prompts.get("custom_file", ""),

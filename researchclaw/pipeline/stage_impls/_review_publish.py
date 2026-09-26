@@ -1629,6 +1629,29 @@ def _resolve_missing_citations(
 # Stage 22: Export & Publish
 # ---------------------------------------------------------------------------
 
+def _build_ldr_appendix(run_dir: Path) -> str:
+    """Return a 'Local Deep Research Results' appendix, or "" when unavailable.
+
+    Sources the report saved by Stage 3/4 (``run_dir/deep_research.md``) and
+    renders it as a top-level appendix section for the final paper.
+    """
+    report = ""
+    path = run_dir / "deep_research.md"
+    if path.exists():
+        try:
+            report = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            report = ""
+    if not report:
+        return ""
+    return (
+        "# Appendix: Local Deep Research Results\n\n"
+        "_Produced by a local-deep-research pass over the research topic; "
+        "included for transparency._\n\n"
+        f"{report}"
+    )
+
+
 def _execute_export_publish(
     stage_dir: Path,
     run_dir: Path,
@@ -2204,6 +2227,26 @@ def _execute_export_publish(
             "Stage 22: Exported references.bib with %d entries",
             len(valid_keys) if valid_keys else 0,
         )
+
+    # Appendix: Local Deep Research Results (from the Stage-3/4 LDR report).
+    if getattr(config.export, "include_deep_research_appendix", True):
+        _ldr_appendix = _build_ldr_appendix(run_dir)
+        if _ldr_appendix:
+            final_paper = final_paper.rstrip() + "\n\n" + _ldr_appendix
+            final_paper_latex = final_paper_latex.rstrip() + "\n\n" + _ldr_appendix
+            try:
+                (stage_dir / "paper_final.md").write_text(
+                    final_paper, encoding="utf-8"
+                )
+                (stage_dir / "paper_final_latex.md").write_text(
+                    final_paper_latex, encoding="utf-8"
+                )
+            except OSError:
+                logger.warning("Stage 22: could not write LDR appendix", exc_info=True)
+            logger.info(
+                "Stage 22: appended 'Local Deep Research Results' appendix (%d chars)",
+                len(_ldr_appendix),
+            )
 
     # Conference template: generate .tex file
     try:

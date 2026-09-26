@@ -264,6 +264,9 @@ export:
   # both:           markdown + docx + LaTeX + compiled PDF
   output_format: "docx"
   docx_reference: ""                 # Optional pandoc reference .docx for Word styling
+  # Append a "Local Deep Research Results" appendix to the final paper when a
+  # local-deep-research report exists (Stage 3/4 deep_research.md).
+  include_deep_research_appendix: true
 
 # === Prompts ===
 # Customize LLM prompts by pointing to your own YAML file.
