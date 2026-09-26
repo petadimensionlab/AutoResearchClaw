@@ -468,3 +468,55 @@ Stage 22 を実行して確認（`paper_revised.md` を与えて export のみ�
 - `tests/test_ldr_appendix.py`: 4 件。
 
 > 注: `_review_publish.py` の既存の型エラー（`_execute_citation_verify` の `dict[str, float]`）は本変更とは無関係（HEAD 時点で存在）。
+
+---
+
+## 15. セルフホスト SearXNG の導入（2026-09-26）
+
+汎用 Web 検索を**キー不要・クォータ無し**で使うため、SearXNG をセルフホストし LDR から利用可能にした。
+
+### 15.1 SearXNG の起動（Docker）
+
+- 配置: `~/workspace/research/searxng/`
+  - `settings.yml`（**`search.formats: [html, json]` が必須** — 既定は html のみで JSON API が無効）
+  - `docker-compose.yml`（`searxng/searxng:latest`、`8080:8080`、`./:/etc/searxng`、`restart: unless-stopped`）
+- 起動: `cd ~/workspace/research/searxng && docker compose up -d`
+- 確認: `curl "http://localhost:8080/search?q=test&format=json"` が JSON を返すこと。
+
+### 15.2 LDR 側の設定（`.env.ds4`）
+
+```bash
+# env-lock された instance URL は LDR の private-URL(SSRF) 承認を兼ねる
+LDR_SEARCH_ENGINE_WEB_SEARXNG_DEFAULT_PARAMS_INSTANCE_URL=http://localhost:8080
+LDR_SEARCH_ENGINE_WEB_SEARXNG_DEFAULT_PARAMS_DELAY_BETWEEN_REQUESTS=1.0
+```
+
+> LDR は既定で localhost/private URL を SSRF 対策で拒否する。env-lock により「運用者が用意した URL」として承認される（`docs/SearXNG-Setup.md` の Option B）。
+
+### 15.3 AutoResearchClaw のドメイン別ルーティング更新
+
+`select_search_engine()` を更新: **社会科学/行動/環境/政策/一般 → `searxng`**（従来 openalex）。openalex は未一致時の既定フォールバックとして残す。
+
+| ドメイン | エンジン |
+|---|---|
+| 生物医学系 | `pubmed` |
+| **社会科学/行動/環境/人文/政策/一般** | **`searxng`** |
+| CS/物理/数学系 | `arxiv` |
+| 未一致 | `openalex`（既定） |
+
+### 15.4 検証（実トピック）
+
+| 検証 | 結果 |
+|---|---|
+| LDR in-process（searxng, 実トピック） | **36s / 29 sources**（Nature-Positive/IUCN・Infectious Generosity 等、高関連） |
+| Stage 1–4（HTTP 経路） | 4/4 done。**4検索すべて `SearXNGSearchEngine`** |
+| `deep_research.md` | **11,964 B**、高関連（nature→generosity→pro-environmental） |
+| コーパス統合 | **`source="ldr"` が 30 件マージ** |
+
+→ openalex より高速・高品質で、社会科学トピックに最適。
+
+### 15.5 運用上の注意
+
+- **SearXNG コンテナが稼働している必要がある**。停止時は社会科学トピックの LDR 検索が 0 件になる。フォールバックしたい場合は `deep_research.engine: openalex` を明示指定。
+- 起動確認: `docker ps --filter name=searxng`。再起動は `restart: unless-stopped` 設定済み。
+- `.env.ds4` と `~/workspace/research/searxng/` は AutoResearchClaw リポジトリ外（`.env.ds4` は LDR 側 `.gitignore` 対象）のためコミット対象外。
