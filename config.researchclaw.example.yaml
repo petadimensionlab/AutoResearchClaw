@@ -109,7 +109,8 @@ literature_search:
   # separately (ldr-web; on macOS :5000 is taken by AirPlay — use e.g. 5055) and
   # enable this block. Non-fatal if down. The first Stage-3 keyword query and a
   # domain-appropriate engine are sent per request; engine "" auto-selects from
-  # research.domains (biomedical->pubmed, social->openalex, cs/physics->arxiv).
+  # research.domains (biomedical->pubmed, social->searxng, cs/physics->arxiv).
+  # Requires a reachable self-hosted SearXNG for social/general topics.
   deep_research:
     enabled: false
     endpoint: "http://localhost:5055"

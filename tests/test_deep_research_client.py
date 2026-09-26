@@ -74,8 +74,9 @@ def test_select_search_engine_routes_by_domain() -> None:
                 "environmental-behavior",
             )
         )
-        == "openalex"
+        == "searxng"
     )
+    assert drc.select_search_engine(("environmental-behavior",)) == "searxng"
     assert drc.select_search_engine(("quantum-physics",)) == "arxiv"
     assert drc.select_search_engine(()) == "openalex"
     assert drc.select_search_engine(("misc-topic",)) == "openalex"

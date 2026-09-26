@@ -40,11 +40,12 @@ _ENGINE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
-        "openalex",
+        "searxng",
         (
             "social", "psycholog", "behavio", "economic", "policy",
             "environment", "sociolog", "political", "education",
             "humanities", "business", "law", "sustainab", "climate",
+            "history", "culture", "news", "general",
         ),
     ),
     (
