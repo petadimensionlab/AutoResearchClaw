@@ -14,11 +14,14 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+from researchclaw.literature.models import Paper
 
 logger = logging.getLogger(__name__)
 
@@ -193,3 +196,44 @@ def deep_research_report(
     except Exception as exc:  # noqa: BLE001 — never break Stage 4
         logger.warning("[deep-research] unexpected error: %s", exc)
         return ""
+
+
+# Report "Sources" entries look like:
+#   [3] Some paper title. [Q1 ★★★★] (source nr: 3)
+#      URL: https://doi.org/10.1234/abc
+_SOURCE_ENTRY_RE = re.compile(
+    r"^\s*\[(\d+)\]\s*(.+?)\s*(?:\[Q[^\]]*\])?\s*(?:\(source nr:\s*\d+\))?\s*\n"
+    r"\s*URL:\s*(\S+)",
+    re.MULTILINE,
+)
+_DOI_IN_URL_RE = re.compile(r"doi\.org/(10\.\d{4,9}/[^\s>]+)")
+
+
+def parse_report_sources(report: str) -> list[Paper]:
+    """Extract cited sources (title + DOI/URL) from an LDR markdown report.
+
+    Returns one ``Paper`` per unique source (deduped by DOI, else URL) with
+    ``source="ldr"`` so Stage 4 can merge them into the candidate corpus.
+    """
+    if not report:
+        return []
+    papers: list[Paper] = []
+    seen: set[str] = set()
+    for num, raw_title, raw_url in _SOURCE_ENTRY_RE.findall(report):
+        url = raw_url.strip().strip("<>")
+        doi_match = _DOI_IN_URL_RE.search(url)
+        doi = doi_match.group(1).rstrip(".,);") if doi_match else ""
+        key = (doi or url).lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        papers.append(
+            Paper(
+                paper_id=f"ldr-{num}",
+                title=re.sub(r"\s+", " ", raw_title).strip().rstrip("."),
+                doi=doi,
+                url=url,
+                source="ldr",
+            )
+        )
+    return papers

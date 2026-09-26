@@ -103,6 +103,56 @@ def _collect_queries(raw: Any, out: list[str]) -> None:
                     out.append(v.strip())
 
 
+def _run_ldr_deep_research(config: RCConfig, run_dir: Path, query: str) -> str:
+    """Run an LDR deep-research query and cache the report under *run_dir*.
+
+    Opt-in via ``literature_search.deep_research``; every failure is non-fatal
+    (returns ""). The cached ``run_dir/deep_research.md`` lets later stages
+    (Stage 4) reuse the report instead of calling LDR a second time.
+    """
+    _dr = getattr(config.literature_search, "deep_research", None)
+    if _dr is None or not _dr.enabled or not query.strip():
+        return ""
+    try:
+        from researchclaw.literature.deep_research_client import (
+            deep_research_report,
+            select_search_engine,
+        )
+
+        password = _dr.password or os.environ.get(_dr.password_env, "")
+        engine = _dr.engine or select_search_engine(config.research.domains)
+        report = deep_research_report(
+            query,
+            endpoint=_dr.endpoint,
+            username=_dr.username,
+            password=password,
+            strategy=_dr.strategy,
+            engine=engine,
+            timeout_sec=_dr.timeout_sec,
+        )
+    except Exception:  # noqa: BLE001 — never break the pipeline
+        logger.warning("[deep-research] augmentation failed", exc_info=True)
+        return ""
+    if report:
+        try:
+            (run_dir / "deep_research.md").write_text(report, encoding="utf-8")
+        except OSError:
+            logger.warning("[deep-research] could not cache report", exc_info=True)
+        logger.info("[deep-research] saved report (%d chars)", len(report))
+    else:
+        logger.info("[deep-research] no report returned (server running?)")
+    return report
+
+
+def _cached_ldr_report(run_dir: Path) -> str:
+    """Return a previously cached ``run_dir/deep_research.md`` ("" if absent)."""
+    path = run_dir / "deep_research.md"
+    try:
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError:
+        return ""
+
+
 def _execute_search_strategy(
     stage_dir: Path,
     run_dir: Path,
@@ -114,12 +164,20 @@ def _execute_search_strategy(
 ) -> StageResult:
     problem_tree = _read_prior_artifact(run_dir, "problem_tree.md") or ""
     topic = config.research.topic
+    # Pre-search LDR so its findings can ground the search-query generation.
+    deep_research = _run_ldr_deep_research(config, run_dir, topic)
     plan: dict[str, Any] | None = None
     sources: list[dict[str, Any]] | None = None
     if llm is not None:
         _pm = prompts or PromptManager()
         _overlay = _get_evolution_overlay(run_dir, "search_strategy")
-        sp = _pm.for_stage("search_strategy", evolution_overlay=_overlay, topic=topic, problem_tree=problem_tree)
+        sp = _pm.for_stage(
+            "search_strategy",
+            evolution_overlay=_overlay,
+            topic=topic,
+            problem_tree=problem_tree,
+            deep_research=(deep_research[:6000] or "(none available)"),
+        )
         resp = _chat_with_prompt(
             llm,
             sp.system,
@@ -601,6 +659,49 @@ def _execute_literature_collect(
             for idx in range(max(20, config.research.daily_paper_count or 20))
         ]
 
+    # Optional local-deep-research (LDR) augmentation — opt-in, non-fatal.
+    # Handled before the candidate/bibtex writes so LDR's cited sources can be
+    # merged into the corpus and become citable (reuses the Stage-3 pre-search
+    # report when present).
+    _dr_written = False
+    _dr_report = _cached_ldr_report(run_dir)
+    if not _dr_report:
+        _dr_first_query = next((q.strip() for q in queries if q and q.strip()), topic)
+        _dr_report = _run_ldr_deep_research(config, run_dir, _dr_first_query)
+    if _dr_report:
+        from researchclaw.literature.deep_research_client import parse_report_sources
+
+        try:
+            (stage_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
+            _dr_written = True
+        except OSError:
+            logger.warning("[deep-research] could not write stage report", exc_info=True)
+        _dr_papers = parse_report_sources(_dr_report)
+        if _dr_papers:
+            _seen_dois = {
+                str(c.get("doi") or "").lower().replace("https://doi.org/", "")
+                for c in candidates
+                if c.get("doi")
+            }
+            _merged = 0
+            for _p in _dr_papers:
+                _doi = (_p.doi or "").lower().replace("https://doi.org/", "")
+                if _doi and _doi in _seen_dois:
+                    continue
+                if _doi:
+                    _seen_dois.add(_doi)
+                _entry = _p.to_dict()
+                _entry["collected_at"] = _utcnow_iso()
+                candidates.append(_entry)
+                try:
+                    bibtex_entries.append(_p.to_bibtex())
+                except Exception:  # noqa: BLE001 — bibtex must never break Stage 4
+                    logger.debug("[deep-research] bibtex render failed", exc_info=True)
+                _merged += 1
+            logger.info(
+                "[deep-research] merged %d new sources into candidates", _merged
+            )
+
     # Write candidates
     out = stage_dir / "candidates.jsonl"
     _write_jsonl(out, candidates)
@@ -651,6 +752,8 @@ def _execute_literature_collect(
 
     # Write references.bib (F2.4)
     artifacts = ["candidates.jsonl"]
+    if _dr_written:
+        artifacts.append("deep_research.md")
     if web_context_parts:
         artifacts.append("web_context.md")
     if (stage_dir / "web_search_result.json").exists():
@@ -679,42 +782,6 @@ def _execute_literature_collect(
         encoding="utf-8",
     )
     artifacts.append("search_meta.json")
-
-    # Optional local-deep-research (LDR) augmentation — opt-in, non-fatal.
-    try:
-        _dr = getattr(config.literature_search, "deep_research", None)
-        if _dr is not None and _dr.enabled:
-            from researchclaw.literature.deep_research_client import (
-                deep_research_report,
-                select_search_engine,
-            )
-
-            _dr_password = _dr.password or os.environ.get(_dr.password_env, "")
-            # LDR searches its own engines. Send one concise keyword query (the
-            # first Stage-3 query) rather than the raw question or a joined
-            # multi-query blob — joined blobs collapse an engine's match count.
-            _dr_query = next(
-                (q.strip() for q in queries if q and q.strip()), topic
-            )
-            _dr_engine = _dr.engine or select_search_engine(config.research.domains)
-            _dr_report = deep_research_report(
-                _dr_query,
-                endpoint=_dr.endpoint,
-                username=_dr.username,
-                password=_dr_password,
-                strategy=_dr.strategy,
-                engine=_dr_engine,
-                timeout_sec=_dr.timeout_sec,
-            )
-            if _dr_report:
-                (stage_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
-                (run_dir / "deep_research.md").write_text(_dr_report, encoding="utf-8")
-                artifacts.append("deep_research.md")
-                logger.info("[deep-research] saved report (%d chars)", len(_dr_report))
-            else:
-                logger.info("[deep-research] no report returned (server running?)")
-    except Exception:  # noqa: BLE001
-        logger.warning("[deep-research] augmentation failed", exc_info=True)
 
     return StageResult(
         stage=Stage.LITERATURE_COLLECT,

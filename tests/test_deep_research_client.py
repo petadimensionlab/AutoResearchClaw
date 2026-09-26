@@ -112,3 +112,38 @@ def test_deep_research_report_sends_search_engine(monkeypatch) -> None:
 def test_deep_research_report_omits_blank_engine(monkeypatch) -> None:
     payloads = _capture_start_payload(monkeypatch)
     assert payloads and "search_engine" not in payloads[0]
+
+
+_REPORT = """\
+# Report
+
+Some synthesis with a citation [[1]](https://doi.org/10.1371/journal.pone.0226071).
+
+## Sources
+
+[1] Elevation, an emotion for prosocial contagion. [Q1 ★★★★] (source nr: 1)
+   URL: https://doi.org/10.1371/journal.pone.0226071
+
+[2] Vaccination as a social contract. [Q2 ★★★★★] (source nr: 2)
+   URL: https://pubmed.ncbi.nlm.nih.gov/32576113/
+
+[3] Same paper again. [Q1 ★★★★] (source nr: 1)
+   URL: https://doi.org/10.1371/journal.pone.0226071
+"""
+
+
+def test_parse_report_sources_extracts_and_dedupes() -> None:
+    papers = drc.parse_report_sources(_REPORT)
+    assert len(papers) == 2
+    first = papers[0]
+    assert first.doi == "10.1371/journal.pone.0226071"
+    assert first.url == "https://doi.org/10.1371/journal.pone.0226071"
+    assert first.source == "ldr"
+    assert "prosocial contagion" in first.title
+    second = papers[1]
+    assert second.doi == ""
+    assert second.url == "https://pubmed.ncbi.nlm.nih.gov/32576113/"
+
+
+def test_parse_report_sources_empty() -> None:
+    assert drc.parse_report_sources("") == []

@@ -246,7 +246,9 @@ _DEFAULT_STAGES: dict[str, dict[str, Any]] = {
             "\n"
             "sources must include id,name,type,url,status,query,verified_at.\n"
             "Topic: {topic}\n"
-            "Problem tree:\n{problem_tree}"
+            "Problem tree:\n{problem_tree}\n"
+            "Prior deep-research findings (background — use to ground and "
+            "diversify the queries):\n{deep_research}"
         ),
         "json_mode": True,
     },
