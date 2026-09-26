@@ -435,3 +435,36 @@ LDR のレポートは **同一クエリでも実行間で大きく変動**す�
 - `researchclaw/literature/deep_research_client.py`: `parse_report_sources()`（＋テスト 2 件）。
 - `researchclaw/pipeline/stage_impls/_literature.py`: `_run_ldr_deep_research()` / `_cached_ldr_report()`、Stage 3 pre-search + 注入、Stage 4 マージ。
 - `researchclaw/prompts/ml.py` / `hep.py`: `{deep_research}` プレースホルダ。
+
+---
+
+## 14. 最終成果物への Appendix 追加（C）（2026-09-26 実装）
+
+### 14.1 内容
+
+最終論文に **Appendix セクション「Local Deep Research Results」** を追加し、LDR の結果を透明性のために同梱する。
+
+- 実装: `_review_publish._build_ldr_appendix()`（`run_dir/deep_research.md` を読み `# Appendix: Local Deep Research Results` で包む）。
+- Stage 22（EXPORT_PUBLISH）で、`paper_final` / `final_paper_latex` に appendix を追記してから `.tex` / `.docx` を生成。
+- 設定: `export.include_deep_research_appendix`（既定 `true`）。`false` で無効化。レポートが無い場合は何もしない。
+
+### 14.2 反映先（検証済み）
+
+Stage 22 を実行して確認（`paper_revised.md` を与えて export のみ実行）:
+
+| ファイル | Appendix |
+|---|---|
+| `stage-22/paper_final.md` | ✅ |
+| `stage-22/paper_final_latex.md` | ✅ |
+| `stage-22/paper.tex`（`\section{Appendix: Local Deep Research Results}`） | ✅ |
+| `stage-22/paper.docx` | ✅ |
+| `deliverables/paper_final.md` | ✅ |
+
+### 14.3 追加されたコード／テスト
+
+- `researchclaw/config.py`: `ExportConfig.include_deep_research_appendix`（＋パーサ）。
+- `researchclaw/pipeline/stage_impls/_review_publish.py`: `_build_ldr_appendix()`、Stage 22 での追記。
+- `config.researchclaw.example.yaml`: 設定例と説明。
+- `tests/test_ldr_appendix.py`: 4 件。
+
+> 注: `_review_publish.py` の既存の型エラー（`_execute_citation_verify` の `dict[str, float]`）は本変更とは無関係（HEAD 時点で存在）。
