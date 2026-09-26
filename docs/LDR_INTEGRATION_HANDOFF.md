@@ -520,3 +520,21 @@ LDR_SEARCH_ENGINE_WEB_SEARXNG_DEFAULT_PARAMS_DELAY_BETWEEN_REQUESTS=1.0
 - **SearXNG コンテナが稼働している必要がある**。停止時は社会科学トピックの LDR 検索が 0 件になる。フォールバックしたい場合は `deep_research.engine: openalex` を明示指定。
 - 起動確認: `docker ps --filter name=searxng`。再起動は `restart: unless-stopped` 設定済み。
 - `.env.ds4` と `~/workspace/research/searxng/` は AutoResearchClaw リポジトリ外（`.env.ds4` は LDR 側 `.gitignore` 対象）のためコミット対象外。
+
+### 15.6 起動・ポート競合対応スクリプト（`scripts/searxng.sh`）
+
+SearXNG の起動確認とポート競合の自動解決を行う:
+
+- 稼働中で JSON API が応答していれば**そのまま利用**（no-op、LDR env を同期）。
+- 希望ポートが他プロセスに占有されていれば **空きポートを自動探索**（+1 … `SEARXNG_PORT_SCAN_MAX`=8130）し、その port でコンテナを再作成。
+- 選択した port を `$SEARXNG_DIR/.env`（`SEARXNG_PORT`、compose が参照）に保存し、**LDR の `..._INSTANCE_URL` を同期**。
+
+```bash
+scripts/searxng.sh                 # 確認/起動（競合時は自動でポート変更）
+scripts/searxng.sh --port 8090     # 希望ポートを指定
+scripts/searxng.sh --force         # コンテナ再作成を強制
+```
+
+環境変数: `SEARXNG_DIR`（既定 `~/workspace/research/searxng`）、`LDR_ENV_FILE`（既定 LDR の `.env.ds4`）、`SEARXNG_PORT`、`SEARXNG_PORT_SCAN_MAX`（既定 8130）。
+
+**検証**: 8080 を他プロセスで占有した状態で実行 → **8081 を自動選択**してコンテナを再作成し、LDR env を `http://localhost:8081` に同期（その後 `--port 8080 --force` で 8080 に復帰）。
