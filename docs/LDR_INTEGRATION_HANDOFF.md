@@ -341,4 +341,50 @@ AutoResearchClaw と **LDR サーバは同一 S2 キー**を使用する。両�
   - `search.engine.web.semantic_scholar.agent_enabled = False`
   - `search.favorites = [pubmed, arxiv, openalex]`（S2 を入れない）
 - AutoResearchClaw 側は `literature_search.inter_query_delay_sec: 1.5`（設定済み）も S2 連打を緩和する。
-- ただし env（`.env.ds4`）に S2 キーを残してあるため、将来 LDR で S2 を再有効化する場合は共有バジェットに注意。
+- ただし env（`.env.ds4`）に S2 キーを残してあるため、将来 LDR で S2 を再有効化する場合は共有バジェットに注意してください。
+
+---
+
+## 12. トピックドメイン別エンジン自動切替 + クエリ改善（2026-09-26 実装）
+
+### 12.1 背景（なぜ必要だったか）
+
+LDR はサーバ既定の `search.tool`（当初 `pubmed`）で検索するため、**生物医学以外のトピックでは無関係な結果しか返さない**。さらに LDR に渡すクエリが生の `topic`（長い疑問文）だと、学術エンジンでは 0 件になりがちだった。
+
+### 12.2 実装した修正
+
+**(A) ドメイン別エンジン自動切替**（`deep_research_client.select_search_engine`）
+- `research.domains` を投票方式で評価し LDR エンジンを選択:
+  - 生物医学系 → `pubmed`
+  - 社会科学/行動/環境/政策系 → `openalex`
+  - CS/物理/数学系 → `arxiv`
+  - 未一致 → `openalex`（全分野）
+- `deep_research.engine` を明示指定すればそれを優先（空なら自動）。
+- AutoResearchClaw は `/api/start_research` の `search_engine` フィールドで**per-request 上書き**（LDR 側の env-lock より優先されることを確認済み）。
+
+**(B) LDR クエリを Stage 3 の先頭キーワードクエリに変更**（`_literature.py`）
+- 生の `topic` でもなく、複数クエリの `"; "` 結合でもなく、**先頭の1クエリ**を送る。
+- 実測: 単一クエリは OpenAlex で十分な件数（例 14,195件）。結合すると激減（同トピックで6件）。
+
+**(C) LDR フォーク修正: OpenAlex の `?`/`*` サニタイズ**（`local-deep-research/src/.../search_engine_openalex.py`）
+- OpenAlex は `?`/`*` をワイルドカード扱いし、既定（stemmed）検索で **HTTP 400** → 無音で 0 件化する。
+- LDR は戦略内で「?」終わりの質問を生成するため必須。`?`/`*` を空白へ置換して送出。
+
+### 12.3 検証（実トピック end-to-end）
+
+トピック: `"What is the outcome of infectious generosity in promoting nature positive activities?"`（`research.domains` = ML + social + behavioral + environmental）
+
+| 状態 | deep_research.md | 結果 |
+|---|---|---|
+| 修正前（pubmed） | 無関係（occupational lifestyle diseases） | ❌ |
+| 修正前（openalex, 結合クエリ + `?` 400） | 443 B「No sources were found」 | ❌ |
+| **修正後（先頭クエリ + openalex + patch）** | **6,644 B・関連内容・実 DOI 12件** | ✅ |
+
+- Stage 4: 280.9s、`deep_research.md` が stage-04 / run_dir / deliverables の 3 か所に生成。
+- 引用は Nature / PNAS / PLOS / J.Public Economics 等の実 DOI。
+
+### 12.4 残る制約
+
+- LDR の `source-based` 戦略は「?」終わりの超具体的な質問を生成する。これらは OpenAlex ではほぼ一致しないため、**実質的にはこちらが渡した先頭クエリの結果が土台**になる。
+- 社会科学トピックで LDR をさらに強化するには、**汎用 Web 検索エンジン（Tavily / Brave / Exa 等）の API キー**を LDR に設定するのが最も効果的（未設定）。
+- 検証用 LDR サーバ（5055）は停止済み。
