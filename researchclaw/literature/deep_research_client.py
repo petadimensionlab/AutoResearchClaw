@@ -92,6 +92,11 @@ def deep_research_report(
                     "X-CSRF-Token": csrf,
                 },
             )
+            # Login rotates the session (session-fixation defence), which
+            # invalidates the pre-login token; re-fetch before /api/start_research.
+            csrf = _first(_request(opener, f"{base}/auth/csrf-token"), (
+                "csrf_token", "token", "csrfToken",
+            ))
         payload: dict[str, object] = {"query": query}
         if strategy:
             payload["strategy"] = strategy
